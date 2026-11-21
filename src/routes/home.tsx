@@ -1,14 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Play, Users } from "lucide-react";
-import { Logo, CharImg } from "@/components/Art";
+import { CharImg, EmoteIcon } from "@/components/Art";
+import { SocialPanel } from "@/components/Social";
+import { emblemSvg, normalizeChar, svgUrl } from "@/lib/art";
 import { useApp } from "@/components/AppState";
 import { MuteButton } from "@/components/MuteButton";
 import { ProfileCorner } from "@/components/ProfileCorner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { CHARACTERS } from "@/lib/art";
-import { EMOTES } from "@/lib/emotes";
+import { EMOTES, EMOTE_MS, PAIR_EMOTES } from "@/lib/emotes";
 import { roomCode } from "@/lib/game";
 
 export const Route = createFileRoute("/home")({
@@ -46,9 +48,10 @@ function Lobby() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [emote, setEmote] = useState<string | null>(null);
+  const [k, setK] = useState(0);
   useEffect(() => { if (ready && !account) void nav({ to: "/" }); }, [ready, account, nav]);
   useEffect(() => setRoom(null), [setRoom]);
-  useEffect(() => { if (!emote) return; const t = setTimeout(() => setEmote(null), 1800); return () => clearTimeout(t); }, [emote]);
+  useEffect(() => { if (!emote) return; const t = setTimeout(() => setEmote(null), EMOTE_MS); return () => clearTimeout(t); }, [emote, k]);
   if (!account) return null;
   const ch = CHARACTERS[account.karakter_pilihan];
 
@@ -60,40 +63,51 @@ function Lobby() {
     setErr("Gagal mencari pertandingan, coba lagi."); setBusy(false);
   }
 
+  const buddies = online.slice(0, 2);
+  const pair = emote && PAIR_EMOTES.includes(emote) && buddies.length > 0;
   return (
     <main className="relative h-full min-h-full overflow-hidden" style={{ background: "radial-gradient(ellipse at 50% 70%, hsl(350 70% 18% / .7), transparent 60%), var(--background)" }}>
-      <header className="absolute inset-x-0 top-0 z-10 flex items-start gap-2 p-2">
-        <div className="w-64"><ProfileCorner /></div>
-        <Logo className="mx-auto hidden w-28 rounded-md sm:block" />
+      <header className="absolute inset-x-0 top-0 z-30 flex items-start gap-2 p-2">
+        <div className="w-56"><ProfileCorner /></div>
+        <img src={svgUrl(emblemSvg())} alt="Hantu Malam" className="mx-auto hidden size-20 sm:block" />
         <div className="flex items-center gap-2 rounded-lg border border-border bg-card/80 px-3 py-2 text-xs"><Users className="size-4 text-primary" />{online.length} online</div>
+        <SocialPanel />
         <MuteButton />
       </header>
 
-      {/* character stage */}
-      <div className="absolute inset-0 flex items-end justify-center pb-6">
+      {/* character stage: you + up to two online players nearby */}
+      <div className="absolute inset-0 flex items-end justify-center gap-2 pb-6">
+        {buddies[0] && <div className="flex flex-col items-center opacity-80">
+          <CharImg id={normalizeChar(buddies[0].karakter) ?? "raka"} emote={pair ? emote : null} className="h-[34vmin] max-h-48" />
+          <div className="text-xs text-muted-foreground">{buddies[0].nama}</div>
+        </div>}
         <div className="relative flex flex-col items-center">
-          {emote && <div className="absolute -top-14 animate-bounce text-5xl">{EMOTES.find((e) => e.id === emote)?.icon}</div>}
-          <CharImg id={account.karakter_pilihan} className={`h-[55vmin] max-h-80 drop-shadow-[0_0_25px_hsl(350_80%_40%/.6)] ${emote ? "animate-pulse" : ""}`} />
+          <CharImg id={account.karakter_pilihan} emote={emote} className="h-[55vmin] max-h-80 drop-shadow-[0_0_25px_hsl(350_80%_40%/.6)] transition-transform duration-500" style={{ transform: pair ? "translateX(-28%)" : undefined }} />
           <div className="mt-1 h-3 w-40 rounded-full bg-primary/30 blur-md" />
           <div className="font-horror text-2xl text-primary">{ch.nama}</div>
         </div>
+        {buddies[1] && <div className="flex flex-col items-center opacity-80">
+          <CharImg id={normalizeChar(buddies[1].karakter) ?? "raka"} className="h-[34vmin] max-h-48" />
+          <div className="text-xs text-muted-foreground">{buddies[1].nama}</div>
+        </div>}
       </div>
 
       {/* emote wheel */}
       <aside className="absolute left-2 top-1/2 z-10 grid -translate-y-1/2 grid-cols-2 gap-1.5 rounded-xl border border-border bg-card/70 p-2">
         <div className="col-span-2 text-center text-[10px] font-bold text-muted-foreground">EMOTE</div>
         {EMOTES.map((e) => (
-          <button key={e.id} onClick={() => setEmote(e.id)} className="flex size-11 flex-col items-center justify-center rounded-lg bg-muted text-xl hover:bg-primary/30" title={e.label}>
-            {e.icon}<span className="text-[8px] text-muted-foreground">{e.label}</span>
+          <button key={e.id} onClick={() => { setEmote(e.id); setK((x) => x + 1); }} className="flex size-11 flex-col items-center justify-center gap-0.5 rounded-lg bg-muted text-foreground hover:bg-primary/30" title={e.label}>
+            <EmoteIcon id={e.id} className="size-4" /><span className="text-[8px] text-muted-foreground">{e.label}</span>
           </button>
         ))}
+        {emote && PAIR_EMOTES.includes(emote) && !buddies.length && <div className="col-span-2 max-w-24 text-center text-[9px] text-muted-foreground">Tidak ada pemain di dekatmu</div>}
       </aside>
 
       {/* mode + start */}
       <div className="absolute bottom-3 right-3 z-10 flex w-56 flex-col gap-2">
         <div className="rounded-lg border border-border bg-card/80 p-2 text-xs">
           <div className="font-bold text-primary">MODE: RUMAH TUA</div>
-          <div className="text-muted-foreground">1 Hantu vs 3 Pemburu · 5 menit</div>
+          <div className="text-muted-foreground">Hantu vs Pemburu · 5 menit · Hantu AI jika tak ada yang jadi hantu</div>
         </div>
         {err && <p className="text-xs text-destructive">{err}</p>}
         <Button size="lg" className="h-16 text-2xl font-horror glow-blood" onClick={start} disabled={busy}>

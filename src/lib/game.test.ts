@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideOutcome, GAME_SECONDS, move, TOTAL_KEYS, KEYS } from "./game";
+import { assignRoles, decideOutcome, GAME_SECONDS, move, TOTAL_KEYS, KEYS } from "./game";
 
 describe("aturan game", () => {
   it("waktu main 5 menit dan 5 kunci", () => {
@@ -21,5 +21,22 @@ describe("aturan game", () => {
   });
   it("tembok menghalangi gerakan", () => {
     expect(move(30, 300, -50, 0).x).toBe(30);
+  });
+});
+
+describe("assignRoles", () => {
+  it("uses the AI ghost when every player chose a hunter", () => {
+    const r = assignRoles([{ id: "a", pref: "hunter" }, { id: "b", pref: "hunter" }]);
+    expect(r.bot).toBe(true);
+    expect(Object.values(r.roles)).toEqual(["hunter", "hunter"]);
+  });
+  it("makes exactly one ghost out of the players who asked", () => {
+    const r = assignRoles([{ id: "a", pref: "ghost" }, { id: "b", pref: "ghost" }, { id: "c", pref: "hunter" }], () => 0.9);
+    expect(r.bot).toBe(false);
+    expect(r.roles).toEqual({ a: "hunter", b: "ghost", c: "hunter" });
+  });
+  it("a solo player always hunts against the AI ghost", () => {
+    const r = assignRoles([{ id: "a", pref: "ghost" }]);
+    expect(r).toEqual({ roles: { a: "hunter" }, bot: true });
   });
 });

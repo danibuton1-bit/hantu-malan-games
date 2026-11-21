@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { isChar, type CharId } from "./art";
+import { normalizeChar, type CharId } from "./art";
 
 export type Profile = {
   id: string;
@@ -18,7 +18,9 @@ export function loadAccount(): Profile | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const p = JSON.parse(raw) as Profile;
-    if (!p.id || !p.kode_id || !isChar(p.karakter_pilihan)) return null;
+    const k = normalizeChar(p.karakter_pilihan);
+    if (!p.id || !p.kode_id || !k) return null;
+    p.karakter_pilihan = k;
     return p;
   } catch {
     return null;

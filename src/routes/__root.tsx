@@ -13,6 +13,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppStateProvider } from "@/components/AppState";
+import { InvitePopup } from "@/components/Social";
 import { tryLockLandscape } from "@/lib/orient";
 
 function NotFoundComponent() {
@@ -131,6 +132,7 @@ function RootComponent() {
       <AppStateProvider>
         <div className="landscape-wrap" onPointerDown={() => void tryLockLandscape()}>
           <Outlet />
+          <InvitePopup />
         </div>
       </AppStateProvider>
     </QueryClientProvider>

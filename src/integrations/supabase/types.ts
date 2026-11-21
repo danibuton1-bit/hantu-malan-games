@@ -14,6 +14,90 @@ export type Database = {
   }
   public: {
     Tables: {
+      chat_messages: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          recipient_id: string | null
+          sender_id: string
+          sender_karakter: string
+          sender_nama: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          recipient_id?: string | null
+          sender_id: string
+          sender_karakter: string
+          sender_nama: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          recipient_id?: string | null
+          sender_id?: string
+          sender_karakter?: string
+          sender_nama?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      friendships: {
+        Row: {
+          addressee_id: string
+          created_at: string
+          id: string
+          requester_id: string
+          status: string
+        }
+        Insert: {
+          addressee_id: string
+          created_at?: string
+          id?: string
+          requester_id: string
+          status?: string
+        }
+        Update: {
+          addressee_id?: string
+          created_at?: string
+          id?: string
+          requester_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "friendships_addressee_id_fkey"
+            columns: ["addressee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "friendships_requester_id_fkey"
+            columns: ["requester_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       game_state: {
         Row: {
           keys_found: number
@@ -54,6 +138,7 @@ export type Database = {
           nama: string
           profile_id: string
           role: string | null
+          role_pref: string
           room_code: string
           status: string
           username: string
@@ -65,6 +150,7 @@ export type Database = {
           nama: string
           profile_id: string
           role?: string | null
+          role_pref?: string
           room_code: string
           status?: string
           username: string
@@ -76,6 +162,7 @@ export type Database = {
           nama?: string
           profile_id?: string
           role?: string | null
+          role_pref?: string
           room_code?: string
           status?: string
           username?: string
@@ -164,6 +251,36 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      list_dm: {
+        Args: { p_id: string; p_kode: string; p_other: string }
+        Returns: {
+          body: string
+          created_at: string
+          id: string
+          recipient_id: string | null
+          sender_id: string
+          sender_karakter: string
+          sender_nama: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "chat_messages"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      list_friends: {
+        Args: { p_id: string; p_kode: string }
+        Returns: {
+          friend_id: string
+          incoming: boolean
+          karakter: string
+          kode_id: string
+          nama: string
+          status: string
+          username: string
+        }[]
+      }
       login_id_card: {
         Args: { p_kode: string; p_nama: string }
         Returns: {
@@ -181,6 +298,24 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      me_ok: { Args: { p_id: string; p_kode: string }; Returns: boolean }
+      respond_friend: {
+        Args: {
+          p_accept: boolean
+          p_id: string
+          p_kode: string
+          p_other: string
+        }
+        Returns: undefined
+      }
+      send_chat: {
+        Args: { p_body: string; p_id: string; p_kode: string; p_to: string }
+        Returns: undefined
+      }
+      send_friend_request: {
+        Args: { p_id: string; p_kode: string; p_target_kode: string }
+        Returns: string
       }
       set_karakter: {
         Args: { p_id: string; p_karakter: string; p_kode: string }

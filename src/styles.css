@@ -146,3 +146,39 @@ body { font-family: var(--font-sans); background: radial-gradient(ellipse at top
     transform: rotate(90deg) translateY(-100%);
   }
 }
+
+/* ---- character life: blink, breathe, emotes ---- */
+.hm-char .hm-lid { animation: hm-blink 4.2s infinite; animation-delay: var(--blink-delay, 0s); }
+@keyframes hm-blink { 0%, 90%, 100% { transform: scaleY(0); } 93%, 96% { transform: scaleY(1); } }
+.hm-char .hm-body { animation: hm-breathe 3.2s ease-in-out infinite; }
+@keyframes hm-breathe { 50% { transform: scale(1.012, 1.02); } }
+.hm-char .hm-beam { animation: hm-beam 2.6s ease-in-out infinite; }
+@keyframes hm-beam { 50% { opacity: .1; } }
+.hm-char .hm-armL, .hm-char .hm-armR { transition: transform .25s; }
+
+.hm-emote-wave .hm-armL { animation: hm-wave .5s ease-in-out infinite alternate; }
+@keyframes hm-wave { from { transform: rotate(-150deg); } to { transform: rotate(-115deg); } }
+.hm-emote-dance .hm-body { animation: hm-dance .6s ease-in-out infinite alternate; }
+.hm-emote-dance .hm-armL { animation: hm-wave .3s ease-in-out infinite alternate; }
+.hm-emote-dance .hm-armR { animation: hm-armup .3s ease-in-out infinite alternate-reverse; }
+@keyframes hm-dance { from { transform: translateX(-4px) rotate(-6deg); } to { transform: translateX(4px) rotate(6deg); } }
+@keyframes hm-armup { from { transform: rotate(60deg); } to { transform: rotate(130deg); } }
+.hm-emote-laugh .hm-body { animation: hm-laugh .18s ease-in-out infinite alternate; }
+.hm-emote-laugh .hm-armL { transform: rotate(35deg); } .hm-emote-laugh .hm-armR { transform: rotate(-35deg); }
+@keyframes hm-laugh { from { transform: translateY(0) scaleY(1); } to { transform: translateY(-3px) scaleY(.98); } }
+.hm-emote-salute .hm-armL { transform: rotate(-140deg); }
+.hm-emote-salute .hm-body { transform: translateY(-2px); }
+.hm-emote-victory .hm-armL { animation: hm-punch .35s ease-in-out infinite alternate; }
+.hm-emote-victory .hm-body { animation: hm-jump .35s ease-in-out infinite alternate; }
+@keyframes hm-punch { from { transform: rotate(-120deg); } to { transform: rotate(-175deg); } }
+@keyframes hm-jump { to { transform: translateY(-8px); } }
+.hm-emote-scared .hm-body { animation: hm-shake .08s linear infinite alternate; }
+.hm-emote-scared .hm-armL { transform: rotate(-150deg); } .hm-emote-scared .hm-armR { transform: rotate(150deg); }
+@keyframes hm-shake { from { transform: translateX(-2px); } to { transform: translateX(2px); } }
+.hm-emote-hug .hm-armL { transform: rotate(-80deg); } .hm-emote-hug .hm-armR { transform: rotate(80deg); }
+.hm-emote-hug .hm-body { transform: rotate(4deg); }
+.hm-emote-kiss .hm-body { animation: hm-lean .6s ease-in-out infinite alternate; }
+.hm-emote-kiss .hm-armL { transform: rotate(-125deg); }
+@keyframes hm-lean { to { transform: rotate(7deg) translateX(3px); } }
+.hm-hearts > * { animation: hm-heart 1.4s ease-out infinite; }
+@keyframes hm-heart { from { transform: translateY(20px) scale(.6); opacity: 0; } 30% { opacity: 1; } to { transform: translateY(-30px) scale(1.1); opacity: 0; } }

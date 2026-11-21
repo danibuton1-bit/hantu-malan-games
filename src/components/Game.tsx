@@ -1,18 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { MessageCircle, Send } from "lucide-react";
 import { Battery, Clock, KeyRound, Megaphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { batterySvg, characterSvg, CHARACTERS, exclaimSvg, ghostSvg, keySvg, kuntilanakSvg, loadImg, pocongSvg, type CharId } from "@/lib/art";
 import { audio } from "@/lib/audio";
-import { BATTERIES, CATCH_DIST, decideOutcome, EXIT, GAME_SECONDS, GHOST_SPAWN, HUNTER_SPAWNS, KEYS, move, npcsAt, roomAt, TOTAL_KEYS } from "@/lib/game";
-import { CharImg } from "./Art";
+import { BATTERIES, BOT_GHOST_ID, BOT_PATROL, CATCH_DIST, ROOMS, WALLS, WORLD, decideOutcome, EXIT, GAME_SECONDS, GHOST_SPAWN, HUNTER_SPAWNS, KEYS, move, npcsAt, roomAt, TOTAL_KEYS } from "@/lib/game";
+import { CharImg, EmoteIcon } from "./Art";
+import { Bubble } from "./Social";
 import { Joystick } from "./Joystick";
-import { createScene } from "@/lib/scene3d";
+import { createScene, LOW_END } from "@/lib/scene3d";
 import { toContent } from "@/lib/orient";
-import { EMOTES, emoteIcon } from "@/lib/emotes";
+import { EMOTES, PAIR_EMOTES, emoteLabel } from "@/lib/emotes";
 import { MuteButton } from "./MuteButton";
 import { Button } from "./ui/button";
 
-export type GamePlayer = { id: string; nama: string; username: string; karakter: CharId; role: "ghost" | "hunter" | null; status: string };
+export type GamePlayer = { id: string; nama: string; username: string; karakter: CharId; role: "ghost" | "hunter" | null; status: string; pref?: string };
 type Live = { yaw: number; x: number; y: number; tx: number; ty: number; status: string; shoutUntil: number; moving: boolean; battery: number };
 
 const HUNTER_SPEED = 150, GHOST_SPEED = 168;
@@ -29,7 +31,14 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
   const [isTouch, setIsTouch] = useState(false);
   const shoutRef = useRef<() => void>(() => {});
   const emoteRef = useRef<(e: string) => void>(() => {});
-  const [bubbles, setBubbles] = useState<{ k: number; nama: string; e: string }[]>([]);
+  const [bubbles, setBubbles] = useState<{ k: number; nama: string; e: string; target?: string }[]>([]);
+  const mapRef = useRef<HTMLCanvasElement>(null);
+  const chatRef = useRef<(t: string) => void>(() => {});
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatText, setChatText] = useState("");
+  const [chatLog, setChatLog] = useState<{ k: number; id: string; sender_nama: string; body: string }[]>([]);
+  const all = useMemo<GamePlayer[]>(() => (players.some((p) => p.role === "ghost") ? players
+    : [...players, { id: BOT_GHOST_ID, nama: "Hantu AI", username: "", karakter: "raka", role: "ghost", status: "alive" }]), [players]);
   const [emoteOpen, setEmoteOpen] = useState(false);
 
   const meP = players.find((p) => p.id === me)!;
@@ -39,9 +48,9 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
 
   useEffect(() => {
     audio.init(); audio.startMusic();
-    const hunters = players.filter((p) => p.role === "hunter");
+    const hunters = all.filter((p) => p.role === "hunter");
     const live: Record<string, Live> = {};
-    players.forEach((p) => {
+    all.forEach((p) => {
       const s = p.role === "ghost" ? GHOST_SPAWN : HUNTER_SPAWNS[hunters.indexOf(p) % 3]!;
       live[p.id] = { yaw: p.role === "ghost" ? 0 : Math.PI, x: s.x, y: s.y, tx: s.x, ty: s.y, status: "alive", shoutUntil: 0, moving: false, battery: 100 };
     });
@@ -51,7 +60,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
     const imgUrls: Record<string, string> = { ghost: url(ghostSvg()), kunti: url(kuntilanakSvg()), pocong: url(pocongSvg()), key: url(keySvg()), bat: url(batterySvg()), ex: url(exclaimSvg()) };
     (Object.keys(CHARACTERS) as CharId[]).forEach((c) => { imgUrls[c] = url(characterSvg(c)); });
     const sc = createScene(canvasRef.current!, { me: amGhost ? "ghost" : meP.karakter, amGhost, imgs: imgUrls });
-    players.forEach((p) => { if (p.id !== me) sc.ensurePlayer(p.id, p.role === "ghost" ? "ghost" : p.karakter, p.role !== "ghost"); });
+    all.forEach((p) => { if (p.id !== me) sc.ensurePlayer(p.id, p.role === "ghost" ? "ghost" : p.karakter, p.role !== "ghost"); });
     sc.resize(); const onResize = () => sc.resize(); window.addEventListener("resize", onResize);
     let pitch = 0;
     const cv = canvasRef.current!;
@@ -71,8 +80,8 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
     const setStatus = (id: string, s: string) => {
       const l = live[id]; if (!l || l.status === s || l.status !== "alive") return;
       l.status = s;
-      if (s === "caught") { audio.scream(); if (id === me) notify("KAMU TERTANGKAP! Sekarang kamu jadi penonton."); else notify(`${players.find((p) => p.id === id)?.nama} tertangkap!`); }
-      if (s === "escaped") notify(`${players.find((p) => p.id === id)?.nama} berhasil kabur!`);
+      if (s === "caught") { audio.scream(); if (id === me) notify("KAMU TERTANGKAP! Sekarang kamu jadi penonton."); else notify(`${all.find((p) => p.id === id)?.nama} tertangkap!`); }
+      if (s === "escaped") notify(`${all.find((p) => p.id === id)?.nama} berhasil kabur!`);
       if (id === me) void supabase.from("players").update({ status: s }).eq("room_code", code).eq("profile_id", me);
     };
     const gainKeys = (mask: number, local: boolean) => {
@@ -91,17 +100,58 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
     });
     ch.on("broadcast", { event: "caught" }, ({ payload }) => setStatus((payload as { id: string }).id, "caught"));
     ch.on("broadcast", { event: "shout" }, ({ payload }) => { const l = live[(payload as { id: string }).id]; if (l) { l.shoutUntil = performance.now() + 2500; audio.shout(); } });
-    const showEmote = (id: string, e: string) => {
-      const k = Math.random(); const nama = id === me ? "Kamu" : players.find((p) => p.id === id)?.nama ?? "?";
-      setBubbles((b) => [...b.slice(-3), { k, nama, e }]);
+    const showEmote = (id: string, e: string, t?: string) => {
+      const k = Math.random(); const nm = (x: string) => (x === me ? "Kamu" : all.find((p) => p.id === x)?.nama ?? "?");
+      setBubbles((b) => [...b.slice(-3), { k, nama: nm(id), e, ...(t ? { target: nm(t) } : {}) }]);
       setTimeout(() => setBubbles((b) => b.filter((x) => x.k !== k)), 2600);
     };
-    ch.on("broadcast", { event: "emote" }, ({ payload }) => { const p = payload as { id: string; e: string }; showEmote(p.id, p.e); });
+    ch.on("broadcast", { event: "emote" }, ({ payload }) => { const p = payload as { id: string; e: string; t?: string }; showEmote(p.id, p.e, p.t); });
     ch.subscribe();
     const send = (event: string, payload: object) => void ch.send({ type: "broadcast", event, payload });
 
-    let emoteCd = 0;
-    emoteRef.current = (e: string) => { const n = performance.now(); if (n < emoteCd) return; emoteCd = n + 1200; showEmote(me, e); void ch.send({ type: "broadcast", event: "emote", payload: { id: me, e } }); };
+    let emoteCd = 0, walkTo: { x: number; y: number; until: number } | null = null;
+    emoteRef.current = (e: string) => {
+      const n = performance.now(); if (n < emoteCd) return; emoteCd = n + 1200;
+      let target: string | undefined;
+      if (PAIR_EMOTES.includes(e)) {
+        const near = Object.entries(live).filter(([id, l]) => id !== me && id !== BOT_GHOST_ID && l.status === "alive").map(([id, l]) => ({ id, l, d: Math.hypot(l.x - meL.x, l.y - meL.y) })).sort((x, y) => x.d - y.d)[0];
+        if (near && near.d < 300) { target = near.id; walkTo = { x: near.l.x, y: near.l.y, until: n + 1500 }; }
+      }
+      showEmote(me, e, target); void ch.send({ type: "broadcast", event: "emote", payload: { id: me, e, t: target } });
+    };
+    chatRef.current = (body: string) => { const t = body.trim().slice(0, 120); if (!t) return; addChat(me, t); void ch.send({ type: "broadcast", event: "chat", payload: { id: me, t } }); };
+    const addChat = (id: string, t: string) => { const k = Math.random(); const nama = id === me ? "Kamu" : all.find((p) => p.id === id)?.nama ?? "?"; setChatLog((c) => [...c.slice(-5), { k, id, sender_nama: nama, body: t }]); setTimeout(() => setChatLog((c) => c.filter((x) => x.k !== k)), 12000); };
+    ch.on("broadcast", { event: "chat" }, ({ payload }) => { const p = payload as { id: string; t: string }; addChat(p.id, String(p.t).slice(0, 120)); });
+    // AI ghost (simulated by the host when nobody plays the ghost)
+    const bot = live[BOT_GHOST_ID];
+    let botWp = 0, botDir = 0, botStuck = 0, botSend = 0;
+    const runBot = (now: number, dt: number) => {
+      if (!bot) return;
+      const prey = Object.entries(live).filter(([id, l]) => id !== BOT_GHOST_ID && l.status === "alive")
+        .map(([, l]) => ({ l, d: Math.hypot(l.x - bot.x, l.y - bot.y) })).filter((o) => o.d < 380 || now < o.l.shoutUntil).sort((a, b) => a.d - b.d)[0];
+      let tx: number, ty: number;
+      if (prey) { tx = prey.l.x; ty = prey.l.y; } else { const w = BOT_PATROL[botWp]!; tx = w[0]; ty = w[1]; if (Math.hypot(tx - bot.x, ty - bot.y) < 40) botWp = (botWp + 1) % BOT_PATROL.length; }
+      let ang = Math.atan2(ty - bot.y, tx - bot.x) + botDir;
+      const sp = GHOST_SPEED * (prey ? 0.9 : 0.7) * dt;
+      const p = move(bot.x, bot.y, Math.cos(ang) * sp, Math.sin(ang) * sp);
+      if (Math.hypot(p.x - bot.x, p.y - bot.y) < sp * 0.3) { botStuck += dt; if (botStuck > 0.25) { botDir = botDir ? -botDir : Math.PI / 2; botStuck = 0; } } else if (botDir && Math.random() < dt * 0.8) botDir = 0;
+      ang = Math.atan2(p.y - bot.y, p.x - bot.x);
+      bot.x = bot.tx = p.x; bot.y = bot.ty = p.y; bot.moving = true; bot.yaw = -ang - Math.PI / 2;
+      for (const [id, l] of Object.entries(live)) if (id !== BOT_GHOST_ID && l.status === "alive" && Math.hypot(l.x - bot.x, l.y - bot.y) < CATCH_DIST) { setStatus(id, "caught"); send("caught", { id }); }
+      if (now - botSend > 100) { botSend = now; send("pos", { id: BOT_GHOST_ID, x: Math.round(bot.x), y: Math.round(bot.y), a: Math.round(bot.yaw * 100) / 100, m: true, st: "alive", k: 0, b: 0 }); }
+    };
+    let mapT = 0;
+    const drawMap = () => {
+      const c = mapRef.current; const g = c?.getContext("2d"); if (!c || !g) return;
+      const s = c.width / WORLD.w; g.clearRect(0, 0, c.width, c.height);
+      for (const r of ROOMS) { g.fillStyle = r.name === roomAt(meL.x, meL.y) ? "rgba(120,40,50,.55)" : "rgba(40,30,40,.6)"; g.fillRect(r.x * s, r.y * s, r.w * s, r.h * s); }
+      g.fillStyle = "#8a7a80"; for (const w of WALLS) g.fillRect(w.x * s, w.y * s, Math.max(1, w.w * s), Math.max(1, w.h * s));
+      g.fillStyle = "#e8b730"; KEYS.forEach((k) => { if (!(keyMask & (1 << k.id))) { g.beginPath(); g.arc(k.x * s, k.y * s, 3.2, 0, 7); g.fill(); } });
+      g.fillStyle = "#79e07a"; BATTERIES.forEach((b) => { if (!(batMask & (1 << b.id))) g.fillRect(b.x * s - 1.5, b.y * s - 2.5, 3, 5); });
+      g.strokeStyle = keyMask === 31 ? "#59e36b" : "#c4121f"; g.lineWidth = 2; g.beginPath(); g.arc(EXIT.x * s, EXIT.y * s, 5, 0, 7); g.stroke();
+      for (const p of all) { const l = live[p.id]!; if (p.id === me || l.status !== "alive") continue; if (p.role === "ghost" && !amGhost) continue; g.fillStyle = p.role === "ghost" ? "#b06cff" : "#6ec3ff"; g.beginPath(); g.arc(l.x * s, l.y * s, 2.6, 0, 7); g.fill(); }
+      g.save(); g.translate(meL.x * s, meL.y * s); g.rotate(-meL.yaw); g.fillStyle = "#fff"; g.beginPath(); g.moveTo(0, -6); g.lineTo(4, 4); g.lineTo(-4, 4); g.closePath(); g.fill(); g.restore();
+    };
     shoutRef.current = () => {
       if (meL.status !== "alive" || performance.now() < meL.shoutUntil) return;
       meL.shoutUntil = performance.now() + 2500; audio.shout(); send("shout", { id: me });
@@ -113,6 +163,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
     let raf = 0, last = performance.now(), hudT = 0;
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
+      if (LOW_END && now - last < 30) return; // ~30 fps cap on weak phones keeps them cool
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
       const elapsed = Math.max(0, (Date.now() - startedAt) / 1000);
       const countdown = Date.now() < startedAt;
@@ -125,7 +176,11 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       let iy = (k["s"] || k["arrowdown"] ? 1 : 0) - (k["w"] || k["arrowup"] ? 1 : 0) + joy.current.y;
       const mag = Math.hypot(ix, iy); if (mag > 1) { ix /= mag; iy /= mag; }
       const canMove = !countdown && !ended && meL.status === "alive" && now > stunUntil;
-      meL.moving = canMove && mag > 0.1;
+      if (walkTo && canMove && now < walkTo.until && Math.hypot(walkTo.x - meL.x, walkTo.y - meL.y) > 38) {
+        const a = Math.atan2(walkTo.x - meL.x, walkTo.y - meL.y); meL.yaw = a + Math.PI;
+        ix = 0; iy = -1;
+      } else walkTo = null;
+      meL.moving = canMove && (mag > 0.1 || walkTo !== null);
       if (meL.moving) {
         const sp = (amGhost ? GHOST_SPEED : HUNTER_SPEED) * dt;
         const fw = -iy, sy = Math.sin(meL.yaw), cy = Math.cos(meL.yaw);
@@ -136,6 +191,8 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       meL.tx = meL.x; meL.ty = meL.y;
       for (const [id, l] of Object.entries(live)) if (id !== me) { l.x += (l.tx - l.x) * Math.min(1, dt * 12); l.y += (l.ty - l.y) * Math.min(1, dt * 12); }
 
+      if (bot && isHost && !countdown && !ended) runBot(now, dt);
+      if (now - mapT > 120) { mapT = now; drawMap(); }
       const npcs = npcsAt(t);
       if (!amGhost && meL.status === "alive" && !countdown && !ended) {
         meL.battery = Math.max(0, meL.battery - dt * 1.1);
@@ -154,14 +211,14 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       if (now - lastSend > 100) { lastSend = now; send("pos", { id: me, x: Math.round(meL.x), y: Math.round(meL.y), a: Math.round(meL.yaw * 100) / 100, m: meL.moving, st: meL.status, k: keyMask, b: batMask }); }
 
       // proximity fear
-      const ghostId = players.find((p) => p.role === "ghost")?.id;
+      const ghostId = all.find((p) => p.role === "ghost")?.id;
       const gl = ghostId ? live[ghostId] : undefined;
       const near = !amGhost && gl && meL.status === "alive" ? Math.max(0, 1 - Math.hypot(gl.x - meL.x, gl.y - meL.y) / 360) : 0;
       audio.heartbeat(near); audio.setBreath(amGhost ? 0.25 : near);
 
       // outcome
       if (!ended && !countdown) {
-        const res = decideOutcome(players.filter((p) => p.role === "hunter").map((p) => ({ status: live[p.id]!.status })), timeLeft);
+        const res = decideOutcome(all.filter((p) => p.role === "hunter").map((p) => ({ status: live[p.id]!.status })), timeLeft);
         if (res) {
           ended = true; setOutcome(res); audio.stopAll();
           if (isHost) {
@@ -173,10 +230,10 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
 
       // camera follows me, or an alive hunter when spectating
       let cam = meL;
-      if (meL.status !== "alive") { const alive = Object.entries(live).find(([id, l]) => l.status === "alive" && players.find((p) => p.id === id)?.role === "hunter"); if (alive) cam = alive[1]; }
+      if (meL.status !== "alive") { const alive = Object.entries(live).find(([id, l]) => l.status === "alive" && all.find((p) => p.id === id)?.role === "hunter"); if (alive) cam = alive[1]; }
       const fp = cam === meL;
       sc.frame({ dt, t, cam, yaw: fp ? meL.yaw : cam.yaw, pitch: fp ? pitch : 0, moving: meL.moving, battery: meL.battery, near, keyMask, batMask, npcs, firstPerson: fp && meL.status === "alive",
-        others: players.filter((p) => p.id !== me).map((p) => { const l = live[p.id]!; return { id: p.id, x: l.x, y: l.y, yaw: l.yaw, ghost: p.role === "ghost", shouting: now < l.shoutUntil, visible: l.status === "alive" && l !== cam }; }) });
+        others: all.filter((p) => p.id !== me).map((p) => { const l = live[p.id]!; return { id: p.id, x: l.x, y: l.y, yaw: l.yaw, ghost: p.role === "ghost", shouting: now < l.shoutUntil, visible: l.status === "alive" && l !== cam }; }) });
       if (now - hudT > 200) {
         hudT = now;
         setHud({ time: Math.ceil(timeLeft), keys: [0, 1, 2, 3, 4].filter((i) => keyMask & (1 << i)).length, battery: meL.battery, near, room: roomAt(meL.x, meL.y), cd: countdown ? Math.ceil((startedAt - Date.now()) / 1000) : 0, statuses: Object.fromEntries(Object.entries(live).map(([id, l]) => [id, l.status])) });
@@ -200,7 +257,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
 
   return (
     <div className="fixed inset-0 select-none overflow-hidden bg-void">
-      <canvas ref={canvasRef} className="h-full w-full touch-none" style={{ filter: spectating ? "grayscale(1) contrast(1.1)" : undefined }} />
+      <canvas ref={canvasRef} className="h-full w-full touch-none" style={{ filter: spectating ? "grayscale(1) contrast(1.1)" : amGhost ? "saturate(1.3) hue-rotate(-20deg)" : undefined }} />
       <div className="pointer-events-none absolute inset-0" style={{ background: `radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,${0.75 + hud.near * 0.2}) 100%)`, boxShadow: hud.near > 0.3 ? `inset 0 0 ${80 * hud.near}px rgba(170,0,20,.6)` : undefined }} />
       {/* HUD */}
       <div className="absolute inset-x-0 top-0 flex items-start gap-2 p-2">
@@ -229,15 +286,29 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       {hud.cd > 0 && <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-void/50 text-center"><div className="font-horror text-8xl text-primary">{hud.cd}</div><p className="mt-3 px-6 text-foreground">{amGhost ? "KAMU HANTU ASAP. Tangkap semua pemburu!" : "KAMU PEMBURU. Cari 5 kunci dan kabur!"}</p></div>}
       {toast && <div className="absolute left-1/2 top-20 -translate-x-1/2 rounded-lg border border-gold bg-card/90 px-4 py-2 text-center text-sm font-bold text-gold">{toast}</div>}
       {spectating && !outcome && <div className="absolute inset-x-0 top-28 text-center font-horror text-2xl text-foreground">KAMU JADI PENONTON</div>}
-      <div className="pointer-events-none absolute right-24 top-24 flex flex-col items-end gap-1">
-        {bubbles.map((b) => <div key={b.k} className="animate-in fade-in slide-in-from-right rounded-full bg-card/85 px-3 py-1 text-sm"><b>{b.nama}</b> <span className="text-2xl">{emoteIcon(b.e)}</span></div>)}
+      <div className="pointer-events-none absolute left-1/2 top-32 flex -translate-x-1/2 flex-col items-center gap-1">
+        {bubbles.map((b) => <div key={b.k} className="animate-in fade-in slide-in-from-right flex items-center gap-1.5 rounded-full bg-card/85 px-3 py-1 text-sm"><EmoteIcon id={b.e} className="size-4 text-primary" /><b>{b.nama}</b> {b.target ? (b.e === "hug" ? `memeluk ${b.target}` : `mencium ${b.target}`) : emoteLabel(b.e)}</div>)}
       </div>
       <div className="absolute bottom-32 right-6 flex flex-col items-end gap-2">
         {emoteOpen && <div className="grid grid-cols-3 gap-1 rounded-xl bg-card/85 p-1.5">
-          {EMOTES.map((e) => <button key={e.id} onPointerDown={() => { emoteRef.current(e.id); setEmoteOpen(false); }} className="size-11 rounded-lg bg-muted text-2xl">{e.icon}</button>)}
+          {EMOTES.map((e) => <button key={e.id} onPointerDown={() => { emoteRef.current(e.id); setEmoteOpen(false); }} className="flex size-12 flex-col items-center justify-center rounded-lg bg-muted text-foreground"><EmoteIcon id={e.id} className="size-5" /><span className="text-[8px]">{e.label}</span></button>)}
         </div>}
-        <button onPointerDown={() => setEmoteOpen((o) => !o)} className="flex size-12 items-center justify-center rounded-full border border-border bg-card/80 text-2xl" aria-label="Emote">😀</button>
+        <button onPointerDown={() => setEmoteOpen((o) => !o)} className="flex size-12 items-center justify-center rounded-full border border-border bg-card/80 text-foreground" aria-label="Emote"><EmoteIcon id="dance" className="size-5" /></button>
       </div>
+      {/* minimap */}
+      <div className="pointer-events-none absolute right-2 top-12 rounded-md border border-border bg-void/70 p-1">
+        <canvas ref={mapRef} width={150} height={100} className="block h-[100px] w-[150px]" />
+        <div className="mt-0.5 flex justify-between px-0.5 text-[8px] text-muted-foreground"><span className="text-gold">● kunci</span><span className="text-chart-4">▮ baterai</span><span className="text-primary">◯ keluar</span></div>
+      </div>
+      {/* in-game chat */}
+      <div className="absolute bottom-40 left-2 flex w-60 flex-col gap-1">
+        {chatLog.map((m) => <Bubble key={m.k} m={m} mine={m.id === me} />)}
+        {chatOpen && <form className="pointer-events-auto flex gap-1" onSubmit={(e) => { e.preventDefault(); chatRef.current(chatText); setChatText(""); }}>
+          <input autoFocus value={chatText} maxLength={120} onChange={(e) => setChatText(e.target.value)} onKeyDown={(e) => e.stopPropagation()} placeholder="Pesan ke tim..." className="h-9 flex-1 rounded-md border border-input bg-card/90 px-2 text-sm" />
+          <button type="submit" className="rounded-md bg-primary px-2 text-primary-foreground" aria-label="Kirim"><Send className="size-4" /></button>
+        </form>}
+      </div>
+      <button onPointerDown={() => setChatOpen((o) => !o)} className="absolute bottom-48 right-6 flex size-12 items-center justify-center rounded-full border border-border bg-card/80 text-foreground" aria-label="Chat"><MessageCircle className="size-5" /></button>
       {/* controls */}
       {isTouch && <div className="absolute bottom-6 left-6"><Joystick vec={joy} /></div>}
       {isTouch && <div className="pointer-events-none absolute bottom-2 right-32 text-xs text-muted-foreground">Geser layar untuk melihat</div>}

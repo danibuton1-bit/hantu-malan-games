@@ -1,10 +1,16 @@
+// Emotes are full-body character animations (CSS classes on the character), not emoji.
 export const EMOTES = [
-  { id: "wave", icon: "👋", label: "Halo" },
-  { id: "laugh", icon: "😂", label: "Ngakak" },
-  { id: "scared", icon: "😱", label: "Takut" },
-  { id: "dance", icon: "🕺", label: "Joget" },
-  { id: "ghost", icon: "👻", label: "Boo!" },
-  { id: "pray", icon: "🙏", label: "Tolong" },
+  { id: "wave", label: "Halo" },
+  { id: "dance", label: "Joget" },
+  { id: "laugh", label: "Ngakak" },
+  { id: "salute", label: "Hormat" },
+  { id: "victory", label: "Menang" },
+  { id: "scared", label: "Takut" },
+  { id: "hug", label: "Peluk" },
+  { id: "kiss", label: "Cium" },
 ] as const;
 export type EmoteId = (typeof EMOTES)[number]["id"];
-export const emoteIcon = (id: string) => EMOTES.find((e) => e.id === id)?.icon ?? "❓";
+/** Emotes that walk to the nearest player and play with them. */
+export const PAIR_EMOTES: readonly string[] = ["hug", "kiss"];
+export const EMOTE_MS = 2400;
+export const emoteLabel = (id: string) => EMOTES.find((e) => e.id === id)?.label ?? id;

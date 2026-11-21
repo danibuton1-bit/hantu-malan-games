@@ -129,3 +129,18 @@ export function roomCode() {
   const A = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   return Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join("");
 }
+
+export const BOT_GHOST_ID = "bot-ghost";
+/**
+ * Roles from lobby preferences: one random ghost among those who want to be the ghost.
+ * Nobody wants it (or a solo player) -> everyone hunts and the AI ghost plays.
+ */
+export function assignRoles(players: { id: string; pref: string }[], rand = Math.random): { roles: Record<string, "ghost" | "hunter">; bot: boolean } {
+  const want = players.filter((p) => p.pref === "ghost");
+  const ghost = players.length >= 2 && want.length > 0 ? want[Math.floor(rand() * want.length)]!.id : null;
+  const roles = Object.fromEntries(players.map((p) => [p.id, p.id === ghost ? "ghost" : "hunter"])) as Record<string, "ghost" | "hunter">;
+  return { roles, bot: ghost === null };
+}
+
+/** AI ghost waypoints (room centres and doorways) used while it has no target. */
+export const BOT_PATROL: [number, number][] = [[1250, 760], [1000, 780], [750, 750], [750, 520], [500, 700], [250, 750], [250, 520], [250, 250], [500, 250], [750, 300], [1000, 320], [1250, 250], [1250, 520]];

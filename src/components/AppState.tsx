@@ -17,6 +17,9 @@ type Ctx = {
   clearInvite: () => void;
   sendInvite: (toId: string, code: string) => void;
   setRoom: (code: string | null) => void;
+  /** Ping another player (new DM / friend request) so their panel refreshes. */
+  signal: (toId: string, kind: "dm" | "friend") => void;
+  signals: { dm: number; friend: number; dmFrom: string | null };
 };
 const AppCtx = createContext<Ctx | null>(null);
 
@@ -26,6 +29,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [online, setOnline] = useState<OnlineUser[]>([]);
   const [invite, setInvite] = useState<Invite | null>(null);
   const [room, setRoomState] = useState<string | null>(null);
+  const [signals, setSignals] = useState({ dm: 0, friend: 0, dmFrom: null as string | null });
   const chan = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
@@ -45,6 +49,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     ch.on("broadcast", { event: "invite" }, ({ payload }) => {
       const p = payload as { to: string; from: OnlineUser; code: string };
       if (p.to === me.id) setInvite({ from: p.from, code: p.code });
+    });
+    ch.on("broadcast", { event: "signal" }, ({ payload }) => {
+      const p = payload as { to: string; from: string; kind: "dm" | "friend" };
+      if (p.to !== me.id) return;
+      setSignals((v) => (p.kind === "dm" ? { ...v, dm: v.dm + 1, dmFrom: p.from } : { ...v, friend: v.friend + 1 }));
     });
     ch.subscribe((s) => {
       if (s === "SUBSCRIBED") void ch.track(meUser(me, null));
@@ -67,8 +76,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     void chan.current?.send({ type: "broadcast", event: "invite", payload: { to, code, from: meUser(account, code) } });
   }, [account]);
 
+  const signal = useCallback((to: string, kind: "dm" | "friend") => {
+    if (!account) return;
+    void chan.current?.send({ type: "broadcast", event: "signal", payload: { to, kind, from: account.id } });
+  }, [account]);
+
   return (
-    <AppCtx.Provider value={{ ready, account, setAccount, logout, online, invite, clearInvite: () => setInvite(null), sendInvite, setRoom: setRoomState }}>
+    <AppCtx.Provider value={{ ready, account, setAccount, logout, online, invite, clearInvite: () => setInvite(null), sendInvite, setRoom: setRoomState, signal, signals }}>
       {children}
     </AppCtx.Provider>
   );
