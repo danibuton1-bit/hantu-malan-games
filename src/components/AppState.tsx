@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, type Context, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { loadAccount, logout as clearAccount, saveAccount, type Profile } from "@/lib/account";
@@ -21,7 +21,9 @@ type Ctx = {
   signal: (toId: string, kind: "dm" | "friend") => void;
   signals: { dm: number; friend: number; dmFrom: string | null };
 };
-const AppCtx = createContext<Ctx | null>(null);
+// Keep one context object across hot reloads; a re-created context makes useApp miss the mounted provider.
+const g = globalThis as unknown as { __hmAppCtx?: Context<Ctx | null> };
+const AppCtx = (g.__hmAppCtx ??= createContext<Ctx | null>(null));
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
