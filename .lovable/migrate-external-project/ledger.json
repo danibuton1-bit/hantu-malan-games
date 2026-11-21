@@ -1,0 +1,72 @@
+[
+ {
+  "capability": "code",
+  "source": "github danibuton1-bit/hantu-malam2",
+  "outcome": "migrate",
+  "status": "verified",
+  "next_action": ""
+ },
+ {
+  "capability": "schema",
+  "source": "drizzle/migrations/0000_hantu_malam_game.sql (profiles, rooms, players, game_state, RPCs)",
+  "outcome": "migrate",
+  "status": "verified",
+  "next_action": ""
+ },
+ {
+  "capability": "records",
+  "source": "old backend (profiles; rooms/players/game_state are temporary)",
+  "outcome": "migrate",
+  "status": "pending",
+  "next_action": "request CSV/JSON export of profiles after preview"
+ },
+ {
+  "capability": "auth identities",
+  "source": "custom ID-card login (profiles.kode_id + nama), no auth.users",
+  "outcome": "migrate",
+  "status": "pending",
+  "next_action": "import profiles export so existing ID cards keep working"
+ },
+ {
+  "capability": "authorization",
+  "source": "open RLS on game tables, SECURITY DEFINER RPCs for profiles",
+  "outcome": "migrate",
+  "status": "verified",
+  "next_action": ""
+ },
+ {
+  "capability": "realtime",
+  "source": "channels (presence, broadcast, postgres_changes on players/rooms)",
+  "outcome": "migrate",
+  "status": "verified",
+  "next_action": ""
+ },
+ {
+  "capability": "uploaded files",
+  "source": "none detected",
+  "outcome": "none",
+  "status": "verified",
+  "next_action": ""
+ },
+ {
+  "capability": "external providers / webhooks / schedules",
+  "source": "none detected",
+  "outcome": "none",
+  "status": "verified",
+  "next_action": ""
+ },
+ {
+  "capability": "secrets",
+  "source": ".env only holds backend URL/publishable key",
+  "outcome": "replaced by Lovable Cloud",
+  "status": "verified",
+  "next_action": ""
+ },
+ {
+  "capability": "verification",
+  "source": "",
+  "outcome": "",
+  "status": "verified",
+  "next_action": "tests pass; made an ID card, entered home, matched into a room with a second player (landscape 844x390)"
+ }
+]
