@@ -1,7 +1,8 @@
 // First-person 3D renderer for the shared 2D game world. World px -> meters via U.
 import * as THREE from "three";
 import { BATTERIES, EXIT, KEYS, ROOMS, WALLS, WORLD } from "./game";
-import { CHARACTERS, type CharId } from "./art";
+import { CHARACTERS, isChar, type CharId } from "./art";
+import { buildAvatar, nameTag, type Avatar } from "./avatar3d";
 
 export const U = 1 / 50;
 /** Weak/old Android phones: lower resolution, cheaper lights and materials, 30 fps. */
@@ -95,7 +96,7 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
   const keys = KEYS.map((k) => { const s = sprite("key", 0.6, 0.3); s.position.set(k.x * U, 0.6, k.y * U); const l = new THREE.PointLight(0xffc840, 0.8, 2.5); l.position.copy(s.position); if (!LOW_END) scene.add(l); return { sprite: s, light: l } as Ent; });
   const bats = BATTERIES.map((b) => { const s = sprite("bat", 0.25, 0.4); s.position.set(b.x * U, 0.3, b.y * U); const l = new THREE.PointLight(0x60ff80, 0.5, 1.8); l.position.copy(s.position); if (!LOW_END) scene.add(l); return { sprite: s, light: l } as Ent; });
   const npcSprites: Record<string, THREE.Sprite> = {};
-  const players: Record<string, { sprite: THREE.Sprite; light: THREE.SpotLight; target: THREE.Object3D; shout: THREE.Sprite }> = {};
+  const players: Record<string, { sprite: THREE.Sprite | null; av: Avatar | null; tag: THREE.Sprite | null; light: THREE.SpotLight; target: THREE.Object3D; shout: THREE.Sprite }> = {};
 
   // flashlight (attached to camera)
   const flash = new THREE.SpotLight(0xfff1d0, 30, 22, 0.42, 0.45, 1.6);
@@ -145,18 +146,21 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
       const w = canvas.clientWidth, h = canvas.clientHeight;
       renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); vmX = w < h ? -0.13 : 0; vm.scale.setScalar(w < h ? 0.8 : 1);
     },
-    ensurePlayer(id: string, k: string, isHunter: boolean) {
+    ensurePlayer(id: string, k: string, isHunter: boolean, name = "") {
       if (players[id]) return;
-      const s = sprite(k, isHunter ? 1.15 : 1.9, isHunter ? 1.6 : 2.4);
+      const av = isHunter && isChar(k) ? buildAvatar(k, Mat as unknown as (p: THREE.MeshStandardMaterialParameters) => THREE.Material, LOW_END) : null;
+      if (av) scene.add(av.root);
+      const s = av ? null : sprite(k, isHunter ? 1.15 : 1.9, isHunter ? 1.6 : 2.4);
+      const tag = isHunter && name ? nameTag(name) : null; if (tag) scene.add(tag);
       const light = new THREE.SpotLight(0xfff1d0, isHunter ? 12 : 0, 14, 0.4, 0.5, 1.6);
       const target = new THREE.Object3D(); scene.add(light, target); light.target = target;
       const shout = sprite("ex", 0.35, 0.5); shout.visible = false;
-      players[id] = { sprite: s, light, target, shout };
+      players[id] = { sprite: s, av, tag, light, target, shout };
     },
     frame(st: {
       dt: number; t: number; cam: { x: number; y: number }; yaw: number; pitch: number; moving: boolean; battery: number; near: number;
       keyMask: number; batMask: number; npcs: { kind: string; x: number; y: number }[];
-      others: { id: string; x: number; y: number; yaw: number; visible: boolean; shouting: boolean; ghost: boolean }[];
+      others: { id: string; x: number; y: number; yaw: number; visible: boolean; shouting: boolean; ghost: boolean; moving: boolean; pitch: number; emote: string | null }[];
       firstPerson: boolean;
     }) {
       if (st.moving) bobT += st.dt * 9;
@@ -185,10 +189,18 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
       });
       for (const o of st.others) {
         const p = players[o.id]; if (!p) continue;
-        p.sprite.visible = o.visible; p.light.visible = o.visible && !o.ghost;
-        const h = o.ghost ? 1.3 + Math.sin(st.t * 2.5) * 0.1 : 0.8;
-        p.sprite.position.set(o.x * U, h, o.y * U);
-        if (o.ghost) (p.sprite.material as THREE.SpriteMaterial).opacity = 0.75 + Math.sin(st.t * 4) * 0.15;
+        p.light.visible = o.visible && !o.ghost;
+        if (p.av) {
+          p.av.root.visible = o.visible; p.av.root.position.set(o.x * U, 0, o.y * U); p.av.root.rotation.y = o.yaw;
+          if (o.visible) p.av.update({ dt: st.dt, t: st.t, moving: o.moving, pitch: o.pitch, emote: o.emote });
+        }
+        if (p.sprite) {
+          p.sprite.visible = o.visible;
+          const h = o.ghost ? 1.3 + Math.sin(st.t * 2.5) * 0.1 : 0.8;
+          p.sprite.position.set(o.x * U, h, o.y * U);
+          if (o.ghost) (p.sprite.material as THREE.SpriteMaterial).opacity = 0.75 + Math.sin(st.t * 4) * 0.15;
+        }
+        if (p.tag) { p.tag.visible = o.visible; p.tag.position.set(o.x * U, 1.78, o.y * U); }
         p.light.position.set(o.x * U, 1.2, o.y * U);
         p.target.position.set(o.x * U - Math.sin(o.yaw) * 5, 0.6, o.y * U - Math.cos(o.yaw) * 5);
         p.shout.visible = o.visible && o.shouting; p.shout.position.set(o.x * U, 2.1 + Math.sin(st.t * 12) * 0.05, o.y * U);

@@ -182,3 +182,26 @@ body { font-family: var(--font-sans); background: radial-gradient(ellipse at top
 @keyframes hm-lean { to { transform: rotate(7deg) translateX(3px); } }
 .hm-hearts > * { animation: hm-heart 1.4s ease-out infinite; }
 @keyframes hm-heart { from { transform: translateY(20px) scale(.6); opacity: 0; } 30% { opacity: 1; } to { transform: translateY(-30px) scale(1.1); opacity: 0; } }
+
+.hm-emote-shy .hm-shy { opacity: 1; }
+.hm-emote-shy .hm-blush { animation: hm-blush .9s ease-in-out infinite alternate; }
+.hm-emote-shy .hm-body { animation: hm-sway .7s ease-in-out infinite alternate; }
+.hm-emote-shy .hm-armL { transform: rotate(-150deg) translateX(4px); } .hm-emote-shy .hm-armR { transform: rotate(150deg) translateX(-4px); }
+.hm-emote-shy .hm-legL { transform: rotate(6deg); } .hm-emote-shy .hm-legR { transform: rotate(-6deg); }
+@keyframes hm-blush { from { opacity: .45; } to { opacity: .95; } }
+@keyframes hm-sway { from { transform: rotate(-4deg); } to { transform: rotate(4deg) translateY(1px); } }
+.hm-walk .hm-legL { animation: hm-step .36s ease-in-out infinite alternate; }
+.hm-walk .hm-legR { animation: hm-step .36s ease-in-out infinite alternate-reverse; }
+.hm-walk .hm-armL { animation: hm-swing .36s ease-in-out infinite alternate-reverse; }
+.hm-walk .hm-armR { animation: hm-swing .36s ease-in-out infinite alternate; }
+.hm-walk .hm-body { animation: hm-bounce .18s ease-in-out infinite alternate; }
+@keyframes hm-step { from { transform: rotate(-16deg); } to { transform: rotate(16deg); } }
+@keyframes hm-swing { from { transform: rotate(-14deg); } to { transform: rotate(14deg); } }
+@keyframes hm-bounce { to { transform: translateY(-2px); } }
+.hm-emote-hug .hm-armL { transform: rotate(-95deg) scaleX(1.2); } .hm-emote-hug .hm-armR { transform: rotate(95deg) scaleX(1.2); }
+.hm-emote-hug .hm-body { animation: hm-squeeze .5s ease-in-out infinite alternate; }
+@keyframes hm-squeeze { from { transform: rotate(3deg) scale(1); } to { transform: rotate(5deg) scale(1.03, .98); } }
+.hm-wheel { animation: hm-wheel-in .18s ease-out; }
+@keyframes hm-wheel-in { from { transform: scale(.4) rotate(-40deg); opacity: 0; } }
+@keyframes hm-scare { 0% { transform: scale(.3); opacity: 0; } 15% { transform: scale(1.15); opacity: 1; } 30% { transform: scale(1) translateX(-8px); } 40% { transform: translateX(8px); } 80% { opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+.hm-scare { animation: hm-scare 1.3s ease-out forwards; }

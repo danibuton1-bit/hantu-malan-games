@@ -2,9 +2,9 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { ArrowLeft, Crown, Ghost } from "lucide-react";
-import { CharImg, EmoteIcon } from "@/components/Art";
+import { CharImg, EmoteIcon, EmoteWheel } from "@/components/Art";
 import { SocialPanel } from "@/components/Social";
-import { EMOTES, EMOTE_MS, PAIR_EMOTES } from "@/lib/emotes";
+import { EMOTE_MS, PAIR_EMOTES } from "@/lib/emotes";
 import { assignRoles } from "@/lib/game";
 import { normalizeChar } from "@/lib/art";
 
@@ -85,7 +85,7 @@ function RoomPage() {
   }
 
   async function start() {
-    if (players.length < 1) return;
+    if (players.length < 1 || !players.slice(1).every((p) => readyIds.has(p.id))) return;
     audio.init();
     const { roles } = assignRoles(players.map((p) => ({ id: p.id, pref: p.pref ?? "hunter" })));
     await Promise.all(players.map((p) => supabase.from("players").update({ role: roles[p.id]!, status: "alive" }).eq("room_code", code).eq("profile_id", p.id)));
@@ -104,31 +104,50 @@ function RoomPage() {
     await supabase.from("rooms").update({ status: "lobby" }).eq("code", code);
   }
 
-  const hostId = players[0]?.id;
   const lobby = room?.status === "lobby";
   useEffect(() => {
-    if (lobby && players.length >= 4 && hostId === account?.id) void start();
-  }, [lobby, players.length, hostId, account?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!lobby) { myReady.current = false; void lobbyCh.current?.track({ ready: false }); }
+  }, [lobby]);
 
   // lobby emotes, shared with everyone in this room
-  const [emotes, setEmotes] = useState<Record<string, { e: string; dx: number; k: number }>>({});
+  const [emotes, setEmotes] = useState<Record<string, { e: string | null; dx: number; k: number; walk: boolean }>>({});
+  const [readyIds, setReadyIds] = useState<Set<string>>(new Set());
+  const [wheel, setWheel] = useState(false);
+  const myReady = useRef(false);
   const lobbyCh = useRef<RealtimeChannel | null>(null);
   const playEmote = useCallback((id: string, e: string, target: string | null) => {
     const ids = players.map((p) => p.id);
     const ai = ids.indexOf(id), ti = target ? ids.indexOf(target) : -1;
     const k = Math.random();
-    const next: Record<string, { e: string; dx: number; k: number }> = { [id]: { e, dx: ti >= 0 ? (ti - ai) * SLOT - Math.sign(ti - ai) * 46 : 0, k } };
-    if (ti >= 0 && target) next[target] = { e, dx: 0, k };
-    setEmotes((m) => ({ ...m, ...next }));
-    setTimeout(() => setEmotes((m) => Object.fromEntries(Object.entries(m).filter(([, v]) => v.k !== k))), EMOTE_MS);
+    const dx = ti >= 0 ? (ti - ai) * SLOT - Math.sign(ti - ai) * 46 : 0;
+    const clear = () => setEmotes((m) => Object.fromEntries(Object.entries(m).filter(([, v]) => v.k !== k)));
+    if (ti >= 0 && target) {
+      // walk over first (legs step), then play the pair emote together
+      setEmotes((m) => ({ ...m, [id]: { e: null, dx, k, walk: true } }));
+      setTimeout(() => setEmotes((m) => ({ ...m, [id]: { e, dx, k, walk: false }, [target]: { e, dx: 0, k, walk: false } })), 850);
+      setTimeout(clear, 850 + EMOTE_MS);
+    } else {
+      setEmotes((m) => ({ ...m, [id]: { e, dx: 0, k, walk: false } }));
+      setTimeout(clear, EMOTE_MS);
+    }
   }, [players]);
   const playRef = useRef(playEmote); playRef.current = playEmote;
   useEffect(() => {
-    const ch = supabase.channel(`room-lobby-${code}`, { config: { broadcast: { self: false } } });
-    ch.on("broadcast", { event: "emote" }, ({ payload }) => { const p = payload as { id: string; e: string; t: string | null }; playRef.current(p.id, p.e, p.t); }).subscribe();
-    lobbyCh.current = ch;
+    if (!account) return;
+    const ch = supabase.channel(`room-lobby-${code}`, { config: { broadcast: { self: false }, presence: { key: account.id } } });
+    ch.on("broadcast", { event: "emote" }, ({ payload }) => { const p = payload as { id: string; e: string; t: string | null }; playRef.current(p.id, p.e, p.t); });
+    ch.on("presence", { event: "sync" }, () => {
+      const st = ch.presenceState<{ ready: boolean }>();
+      setReadyIds(new Set(Object.entries(st).filter(([, v]) => v.some((x) => x.ready)).map(([id]) => id)));
+    });
+    ch.subscribe((status) => { if (status === "SUBSCRIBED") { lobbyCh.current = ch; void ch.track({ ready: myReady.current }); } });
     return () => { lobbyCh.current = null; void supabase.removeChannel(ch); };
-  }, [code]);
+  }, [code, account]);
+  function toggleReady() {
+    myReady.current = !myReady.current;
+    if (account) setReadyIds((r) => { const n = new Set(r); if (myReady.current) n.add(account.id); else n.delete(account.id); return n; });
+    void lobbyCh.current?.track({ ready: myReady.current });
+  }
   function doEmote(e: string) {
     if (!account) return;
     const ids = players.map((p) => p.id); const me = ids.indexOf(account.id);
@@ -153,6 +172,7 @@ function RoomPage() {
   }
 
   const myPref = players.find((p) => p.id === account.id)?.pref ?? "hunter";
+  const allReady = players.slice(1).every((p) => readyIds.has(p.id));
   const ghostWanted = players.filter((p) => p.pref === "ghost").length;
   return (
     <main className="relative flex h-full min-h-full flex-col items-center justify-center gap-3 p-4">
@@ -164,9 +184,10 @@ function RoomPage() {
         {[0, 1, 2, 3].map((i) => { const p = players[i]; const em = p ? emotes[p.id] : undefined; return (
           <div key={i} className="flex h-40 w-24 flex-col items-center justify-end rounded-lg border border-border bg-card p-1">
             {p ? <>
-              <CharImg id={p.karakter} emote={em?.e ?? null} className="relative z-10 h-28 transition-transform duration-500" style={{ transform: `translateX(${em?.dx ?? 0}px)` }} />
+              <CharImg id={p.karakter} emote={em?.e ?? null} walking={em?.walk ?? false} className="relative z-10 h-28 transition-transform duration-[850ms] ease-linear" style={{ transform: `translateX(${em?.dx ?? 0}px)${(em?.dx ?? 0) > 0 ? " scaleX(-1)" : ""}` }} />
               <div className="flex w-full items-center justify-center gap-1 truncate text-xs font-bold">{i === 0 && <Crown className="size-3 text-gold" />}{p.nama}</div>
               <div className={`text-[10px] font-bold ${p.pref === "ghost" ? "text-primary" : "text-chart-4"}`}>{p.pref === "ghost" ? "INGIN JADI HANTU" : "PEMBURU"}</div>
+              <div className={`text-[10px] font-bold ${i === 0 || readyIds.has(p.id) ? "text-gold" : "text-muted-foreground"}`}>{i === 0 ? "HOST" : readyIds.has(p.id) ? "SIAP" : "BELUM SIAP"}</div>
             </> : <div className="mb-12 text-2xl text-muted-foreground">?</div>}
           </div>
         ); })}
@@ -176,11 +197,16 @@ function RoomPage() {
         <Button size="sm" variant={myPref === "hunter" ? "default" : "secondary"} onClick={() => void setPref("hunter")}>Pemburu</Button>
         <Button size="sm" variant={myPref === "ghost" ? "default" : "secondary"} onClick={() => void setPref("ghost")}><Ghost /> Hantu</Button>
       </div>}
-      {inRoom && <div className="flex flex-wrap justify-center gap-1">{EMOTES.map((e) => (
-        <button key={e.id} onClick={() => doEmote(e.id)} className="flex h-11 w-12 flex-col items-center justify-center rounded-lg bg-muted text-foreground hover:bg-primary/30" title={e.label}><EmoteIcon id={e.id} className="size-4" /><span className="text-[8px]">{e.label}</span></button>
-      ))}</div>}
+      {inRoom && <button onClick={() => setWheel(true)} className="flex items-center gap-1 rounded-full border-2 border-gold/70 bg-card/80 px-4 py-2 text-xs font-bold"><EmoteIcon id="dance" className="size-4" /> EMOTE</button>}
+      <EmoteWheel open={wheel} onClose={() => setWheel(false)} onPick={doEmote} />
       <p className="text-center text-xs text-muted-foreground">{players.length}/4 pemain · {ghostWanted === 0 || players.length < 2 ? "Tidak ada yang jadi hantu: Hantu AI akan berburu kalian." : "Satu hantu dipilih acak dari yang ingin jadi hantu."}</p>
-      {isHost ? <Button className="glow-blood font-horror text-xl" size="lg" onClick={start}>MULAI PERMAINAN</Button> : <p className="text-sm text-muted-foreground">Menunggu host memulai permainan...</p>}
+      {isHost ? <>
+        <Button className="glow-blood font-horror text-xl" size="lg" onClick={start} disabled={!allReady}>MULAI PERMAINAN</Button>
+        {!allReady && <p className="text-xs text-muted-foreground">Menunggu semua pemain menekan SIAP...</p>}
+      </> : inRoom && <div className="flex flex-col items-center gap-1">
+        <Button size="lg" variant={readyIds.has(account.id) ? "secondary" : "default"} className="font-horror text-xl" onClick={toggleReady}>{readyIds.has(account.id) ? "BATAL SIAP" : "SIAP"}</Button>
+        <p className="text-xs text-muted-foreground">{readyIds.has(account.id) ? "Menunggu host memulai permainan..." : "Tekan SIAP kalau kamu sudah siap main."}</p>
+      </div>}
     </main>
   );
 }

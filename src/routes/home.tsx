@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Play, Users } from "lucide-react";
-import { CharImg, EmoteIcon } from "@/components/Art";
+import { CharImg, EmoteIcon, EmoteWheel } from "@/components/Art";
 import { SocialPanel } from "@/components/Social";
 import { emblemSvg, normalizeChar, svgUrl } from "@/lib/art";
 import { useApp } from "@/components/AppState";
@@ -10,7 +10,7 @@ import { ProfileCorner } from "@/components/ProfileCorner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { CHARACTERS } from "@/lib/art";
-import { EMOTES, EMOTE_MS, PAIR_EMOTES } from "@/lib/emotes";
+import { EMOTE_MS, PAIR_EMOTES } from "@/lib/emotes";
 import { roomCode } from "@/lib/game";
 
 export const Route = createFileRoute("/home")({
@@ -49,6 +49,19 @@ function Lobby() {
   const [err, setErr] = useState("");
   const [emote, setEmote] = useState<string | null>(null);
   const [k, setK] = useState(0);
+  const [wheel, setWheel] = useState(false);
+  const [walk, setWalk] = useState(false);
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!account) return;
+    let alive = true;
+    const load = async () => {
+      const { data } = await supabase.rpc("list_friends", { p_id: account.id, p_kode: account.kode_id });
+      if (alive) setFriendIds(new Set(((data ?? []) as { friend_id: string; status: string }[]).filter((f) => f.status === "accepted").map((f) => f.friend_id)));
+    };
+    void load(); const t = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(t); };
+  }, [account]);
   useEffect(() => { if (ready && !account) void nav({ to: "/" }); }, [ready, account, nav]);
   useEffect(() => setRoom(null), [setRoom]);
   useEffect(() => { if (!emote) return; const t = setTimeout(() => setEmote(null), EMOTE_MS); return () => clearTimeout(t); }, [emote, k]);
@@ -63,7 +76,7 @@ function Lobby() {
     setErr("Gagal mencari pertandingan, coba lagi."); setBusy(false);
   }
 
-  const buddies = online.slice(0, 2);
+  const buddies = online.filter((o) => friendIds.has(o.id)).slice(0, 2);
   const pair = emote && PAIR_EMOTES.includes(emote) && buddies.length > 0;
   return (
     <main className="relative h-full min-h-full overflow-hidden" style={{ background: "radial-gradient(ellipse at 50% 70%, hsl(350 70% 18% / .7), transparent 60%), var(--background)" }}>
@@ -82,7 +95,8 @@ function Lobby() {
           <div className="text-xs text-muted-foreground">{buddies[0].nama}</div>
         </div>}
         <div className="relative flex flex-col items-center">
-          <CharImg id={account.karakter_pilihan} emote={emote} className="h-[55vmin] max-h-80 drop-shadow-[0_0_25px_hsl(350_80%_40%/.6)] transition-transform duration-500" style={{ transform: pair ? "translateX(-28%)" : undefined }} />
+          <button type="button" onClick={() => setWheel(true)} aria-label="Buka roda emote" className="cursor-pointer"><CharImg id={account.karakter_pilihan} emote={walk ? null : emote} walking={walk} className="h-[55vmin] max-h-80 drop-shadow-[0_0_25px_hsl(350_80%_40%/.6)] transition-transform duration-500" style={{ transform: pair || walk ? "translateX(-28%) scaleX(-1)" : undefined, transitionDuration: "750ms" }} /></button>
+          <div className="text-[10px] text-muted-foreground">Ketuk karaktermu untuk emote</div>
           <div className="mt-1 h-3 w-40 rounded-full bg-primary/30 blur-md" />
           <div className="font-horror text-2xl text-primary">{ch.nama}</div>
         </div>
@@ -93,15 +107,9 @@ function Lobby() {
       </div>
 
       {/* emote wheel */}
-      <aside className="absolute left-2 top-1/2 z-10 grid -translate-y-1/2 grid-cols-2 gap-1.5 rounded-xl border border-border bg-card/70 p-2">
-        <div className="col-span-2 text-center text-[10px] font-bold text-muted-foreground">EMOTE</div>
-        {EMOTES.map((e) => (
-          <button key={e.id} onClick={() => { setEmote(e.id); setK((x) => x + 1); }} className="flex size-11 flex-col items-center justify-center gap-0.5 rounded-lg bg-muted text-foreground hover:bg-primary/30" title={e.label}>
-            <EmoteIcon id={e.id} className="size-4" /><span className="text-[8px] text-muted-foreground">{e.label}</span>
-          </button>
-        ))}
-        {emote && PAIR_EMOTES.includes(emote) && !buddies.length && <div className="col-span-2 max-w-24 text-center text-[9px] text-muted-foreground">Tidak ada pemain di dekatmu</div>}
-      </aside>
+      <button onClick={() => setWheel(true)} className="absolute left-3 top-1/2 z-10 flex size-14 -translate-y-1/2 flex-col items-center justify-center rounded-full border-2 border-gold/70 bg-card/80 text-foreground" aria-label="Emote"><EmoteIcon id="dance" className="size-5" /><span className="text-[9px] font-bold">EMOTE</span></button>
+      {emote && PAIR_EMOTES.includes(emote) && !buddies.length && <div className="absolute left-20 top-1/2 z-10 text-[10px] text-muted-foreground">Tidak ada teman di dekatmu</div>}
+      <EmoteWheel open={wheel} onClose={() => setWheel(false)} onPick={(id) => { if (PAIR_EMOTES.includes(id) && buddies.length) { setWalk(true); setTimeout(() => { setWalk(false); setEmote(id); setK((x) => x + 1); }, 750); } else { setEmote(id); setK((x) => x + 1); } }} />
 
       {/* mode + start */}
       <div className="absolute bottom-3 right-3 z-10 flex w-56 flex-col gap-2">

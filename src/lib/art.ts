@@ -33,7 +33,14 @@ ${o.mood === "serius" ? `<path d="M34 41 l9 1.5 M66 41 l-9 1.5" stroke="#5a3a26"
 ${eyes(o.iris, o.girl)}
 <ellipse cx="34" cy="58" rx="3.6" ry="2" fill="#f19aa0" opacity="${o.girl ? ".65" : ".25"}"/><ellipse cx="66" cy="58" rx="3.6" ry="2" fill="#f19aa0" opacity="${o.girl ? ".65" : ".25"}"/>
 <circle cx="50" cy="58" r=".7" fill="${SKIN_SH}"/>
-${o.mood === "serius" ? `<path d="M46 63.5 q4 -2 8 0" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>` : `<path d="M45 62 q5 4 10 0" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`}`;
+${o.mood === "serius" ? `<path d="M46 63.5 q4 -2 8 0" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>` : `<path d="M45 62 q5 4 10 0" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`}
+<g class="hm-shy" opacity="0">
+<ellipse cx="41" cy="51" rx="7.4" ry="8.2" fill="${SKIN}"/><ellipse cx="59" cy="51" rx="7.4" ry="8.2" fill="${SKIN}"/><rect x="43" y="59.5" width="14" height="6.5" fill="${SKIN}"/>
+<path d="M36 46.5 L45 51 L36 55.5 M64 46.5 L55 51 L64 55.5" stroke="${INK}" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<ellipse class="hm-blush" cx="34" cy="58.5" rx="6" ry="3.2" fill="#ff5d7a" opacity=".75"/><ellipse class="hm-blush" cx="66" cy="58.5" rx="6" ry="3.2" fill="#ff5d7a" opacity=".75"/>
+<path d="M33 57 l2 -2 M36 57.5 l2 -2 M64 57.5 l2 -2 M67 57 l2 -2" stroke="#c43a55" stroke-width=".8" stroke-linecap="round"/>
+<path d="M44.5 63 q1.4 -1.6 2.8 0 t2.8 0 t2.8 0 t2.8 0" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+</g>`;
 
 const badge = (x: number, y: number) => `<circle cx="${x}" cy="${y}" r="4.6" fill="#2a2116" stroke="#d8ae45" stroke-width="1.2"/><path d="M${x - 1.6} ${y - 2} a2.4 2.4 0 1 0 2.6 3.6 a2 2 0 1 1 -2.6 -3.6z" fill="#d8ae45"/><text x="${x}" y="${y - 1.9}" font-size="1.7" text-anchor="middle" fill="#d8ae45" font-family="sans-serif" font-weight="bold">HANTU</text><text x="${x}" y="${y + 3.4}" font-size="1.7" text-anchor="middle" fill="#d8ae45" font-family="sans-serif" font-weight="bold">MALAM</text>`;
 
@@ -57,12 +64,18 @@ function freeArm(o: { sleeve: string; sleeveSh: string; glove?: boolean }) {
 <circle cx="75" cy="101" r="4.2" fill="${o.glove ? "#202024" : SKIN}" stroke="${INK}" stroke-width=".7"/>${o.glove ? `<path d="M73 104 h4" stroke="${SKIN}" stroke-width="1.6" stroke-linecap="round"/>` : ""}
 </g>`;
 }
-const legs = (pants: string, shade: string, shoe: string, sole: string, boots: boolean) => `
-<path d="M33 102 L49 102 L48 129 L36 129Z" fill="${pants}" stroke="${INK}" stroke-width=".8"/><path d="M51 102 L67 102 L64 129 L52 129Z" fill="${pants}" stroke="${INK}" stroke-width=".8"/>
-<path d="M37 124 h10 M53 124 h10" stroke="${shade}" stroke-width="1.4"/>
-<path d="M33 ${boots ? 124 : 128} h15 v8 q0 2 -2 2 h-16 q-1 -6 3 -10z" fill="${shoe}" stroke="${INK}" stroke-width=".8"/><path d="M52 ${boots ? 124 : 128} h15 q4 4 3 10 h-16 q-2 0 -2 -2z" fill="${shoe}" stroke="${INK}" stroke-width=".8"/>
-<path d="M30 137 h18 M52 137 h18" stroke="${sole}" stroke-width="2"/>
-${boots ? `<path d="M38 127 l4 2 M38 130 l4 -2 M57 127 l4 2 M57 130 l4 -2" stroke="#555" stroke-width=".7"/>` : ""}`;
+const legs = (pants: string, shade: string, shoe: string, sole: string, boots: boolean) => {
+  const by = boots ? 124 : 128;
+  return `
+<g class="hm-legL" style="transform-origin:41px 103px">
+<path d="M33 102 L49 102 L48 129 L36 129Z" fill="${pants}" stroke="${INK}" stroke-width=".8"/><path d="M37 124 h10" stroke="${shade}" stroke-width="1.4"/>
+<path d="M33 ${by} h15 v8 q0 2 -2 2 h-16 q-1 -6 3 -10z" fill="${shoe}" stroke="${INK}" stroke-width=".8"/><path d="M30 137 h18" stroke="${sole}" stroke-width="2"/>
+${boots ? `<path d="M38 127 l4 2 M38 130 l4 -2" stroke="#555" stroke-width=".7"/>` : ""}</g>
+<g class="hm-legR" style="transform-origin:59px 103px">
+<path d="M51 102 L67 102 L64 129 L52 129Z" fill="${pants}" stroke="${INK}" stroke-width=".8"/><path d="M53 124 h10" stroke="${shade}" stroke-width="1.4"/>
+<path d="M52 ${by} h15 q4 4 3 10 h-16 q-2 0 -2 -2z" fill="${shoe}" stroke="${INK}" stroke-width=".8"/><path d="M52 137 h18" stroke="${sole}" stroke-width="2"/>
+${boots ? `<path d="M57 127 l4 2 M57 130 l4 -2" stroke="#555" stroke-width=".7"/>` : ""}</g>`;
+};
 
 function raka() {
   return `

@@ -6,6 +6,7 @@ export const EMOTES = [
   { id: "salute", label: "Hormat" },
   { id: "victory", label: "Menang" },
   { id: "scared", label: "Takut" },
+  { id: "shy", label: "Salting" },
   { id: "hug", label: "Peluk" },
   { id: "kiss", label: "Cium" },
 ] as const;

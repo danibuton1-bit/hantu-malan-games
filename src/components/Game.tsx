@@ -1,21 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageCircle, Send } from "lucide-react";
-import { Battery, Clock, KeyRound, Megaphone } from "lucide-react";
+import { Battery, Clock, Ghost, KeyRound, Megaphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { batterySvg, characterSvg, CHARACTERS, exclaimSvg, ghostSvg, keySvg, kuntilanakSvg, loadImg, pocongSvg, type CharId } from "@/lib/art";
 import { audio } from "@/lib/audio";
 import { BATTERIES, BOT_GHOST_ID, BOT_PATROL, CATCH_DIST, ROOMS, WALLS, WORLD, decideOutcome, EXIT, GAME_SECONDS, GHOST_SPAWN, HUNTER_SPAWNS, KEYS, move, npcsAt, roomAt, TOTAL_KEYS } from "@/lib/game";
-import { CharImg, EmoteIcon } from "./Art";
+import { CharImg, EmoteIcon, EmoteWheel } from "./Art";
 import { Bubble } from "./Social";
 import { Joystick } from "./Joystick";
 import { createScene, LOW_END } from "@/lib/scene3d";
 import { toContent } from "@/lib/orient";
-import { EMOTES, PAIR_EMOTES, emoteLabel } from "@/lib/emotes";
+import { PAIR_EMOTES, emoteLabel } from "@/lib/emotes";
 import { MuteButton } from "./MuteButton";
 import { Button } from "./ui/button";
 
 export type GamePlayer = { id: string; nama: string; username: string; karakter: CharId; role: "ghost" | "hunter" | null; status: string; pref?: string };
-type Live = { yaw: number; x: number; y: number; tx: number; ty: number; status: string; shoutUntil: number; moving: boolean; battery: number };
+type Live = { yaw: number; x: number; y: number; tx: number; ty: number; status: string; shoutUntil: number; moving: boolean; battery: number; pitch: number; emote: string | null; emoteUntil: number };
 
 const HUNTER_SPEED = 150, GHOST_SPEED = 168;
 
@@ -40,7 +40,10 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
   const all = useMemo<GamePlayer[]>(() => (players.some((p) => p.role === "ghost") ? players
     : [...players, { id: BOT_GHOST_ID, nama: "Hantu AI", username: "", karakter: "raka", role: "ghost", status: "alive" }]), [players]);
   const [emoteOpen, setEmoteOpen] = useState(false);
+  const [scare, setScare] = useState(0);
+  const ambushRef = useRef<() => void>(() => {});
 
+  const scareUrl = useMemo(() => loadImg(ghostSvg()).src, []);
   const meP = players.find((p) => p.id === me)!;
   const amGhost = meP.role === "ghost";
 
@@ -52,7 +55,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
     const live: Record<string, Live> = {};
     all.forEach((p) => {
       const s = p.role === "ghost" ? GHOST_SPAWN : HUNTER_SPAWNS[hunters.indexOf(p) % 3]!;
-      live[p.id] = { yaw: p.role === "ghost" ? 0 : Math.PI, x: s.x, y: s.y, tx: s.x, ty: s.y, status: "alive", shoutUntil: 0, moving: false, battery: 100 };
+      live[p.id] = { yaw: p.role === "ghost" ? 0 : Math.PI, x: s.x, y: s.y, tx: s.x, ty: s.y, status: "alive", shoutUntil: 0, moving: false, battery: 100, pitch: 0, emote: null, emoteUntil: 0 };
     });
     let keyMask = 0, batMask = 0, ended = false, lastSend = 0, lastStep = 0, stunUntil = 0, npcCd = 0;
     const meL = live[me]!;
@@ -60,7 +63,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
     const imgUrls: Record<string, string> = { ghost: url(ghostSvg()), kunti: url(kuntilanakSvg()), pocong: url(pocongSvg()), key: url(keySvg()), bat: url(batterySvg()), ex: url(exclaimSvg()) };
     (Object.keys(CHARACTERS) as CharId[]).forEach((c) => { imgUrls[c] = url(characterSvg(c)); });
     const sc = createScene(canvasRef.current!, { me: amGhost ? "ghost" : meP.karakter, amGhost, imgs: imgUrls });
-    all.forEach((p) => { if (p.id !== me) sc.ensurePlayer(p.id, p.role === "ghost" ? "ghost" : p.karakter, p.role !== "ghost"); });
+    all.forEach((p) => { if (p.id !== me) sc.ensurePlayer(p.id, p.role === "ghost" ? "ghost" : p.karakter, p.role !== "ghost", p.nama); });
     sc.resize(); const onResize = () => sc.resize(); window.addEventListener("resize", onResize);
     let pitch = 0;
     const cv = canvasRef.current!;
@@ -92,15 +95,18 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       if (keyMask === 31) { audio.creak(); setTimeout(() => notify("Semua kunci terkumpul! Kabur lewat gerbang Kuburan Belakang!"), 1200); }
     };
     ch.on("broadcast", { event: "pos" }, ({ payload }) => {
-      const p = payload as { id: string; a?: number; x: number; y: number; m: boolean; st: string; k: number; b: number };
+      const p = payload as { id: string; a?: number; p?: number; x: number; y: number; m: boolean; st: string; k: number; b: number };
       const l = live[p.id]; if (!l) return;
-      l.tx = p.x; l.ty = p.y; l.moving = p.m; if (p.a !== undefined) l.yaw = p.a;
+      l.tx = p.x; l.ty = p.y; l.moving = p.m; if (p.a !== undefined) l.yaw = p.a; if (p.p !== undefined) l.pitch = p.p;
       if (p.st !== "alive") setStatus(p.id, p.st);
       gainKeys(p.k, false); batMask |= p.b;
     });
     ch.on("broadcast", { event: "caught" }, ({ payload }) => setStatus((payload as { id: string }).id, "caught"));
     ch.on("broadcast", { event: "shout" }, ({ payload }) => { const l = live[(payload as { id: string }).id]; if (l) { l.shoutUntil = performance.now() + 2500; audio.shout(); } });
     const showEmote = (id: string, e: string, t?: string) => {
+      const until = performance.now() + 2600;
+      const la = live[id]; if (la) { la.emote = e; la.emoteUntil = until + (t ? 900 : 0); }
+      const lt = t ? live[t] : undefined; if (lt && PAIR_EMOTES.includes(e)) { lt.emote = e; lt.emoteUntil = until + 900; }
       const k = Math.random(); const nm = (x: string) => (x === me ? "Kamu" : all.find((p) => p.id === x)?.nama ?? "?");
       setBubbles((b) => [...b.slice(-3), { k, nama: nm(id), e, ...(t ? { target: nm(t) } : {}) }]);
       setTimeout(() => setBubbles((b) => b.filter((x) => x.k !== k)), 2600);
@@ -122,11 +128,29 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
     chatRef.current = (body: string) => { const t = body.trim().slice(0, 120); if (!t) return; addChat(me, t); void ch.send({ type: "broadcast", event: "chat", payload: { id: me, t } }); };
     const addChat = (id: string, t: string) => { const k = Math.random(); const nama = id === me ? "Kamu" : all.find((p) => p.id === id)?.nama ?? "?"; setChatLog((c) => [...c.slice(-5), { k, id, sender_nama: nama, body: t }]); setTimeout(() => setChatLog((c) => c.filter((x) => x.k !== k)), 12000); };
     ch.on("broadcast", { event: "chat" }, ({ payload }) => { const p = payload as { id: string; t: string }; addChat(p.id, String(p.t).slice(0, 120)); });
+    // jump-in: the ghost appears right in front of a hunter
+    const ambush = (g: Live) => {
+      const prey = Object.entries(live).filter(([id, l]) => id !== BOT_GHOST_ID && l !== g && l.status === "alive" && all.find((p) => p.id === id)?.role === "hunter")
+        .map(([, l]) => ({ l, d: Math.hypot(l.x - g.x, l.y - g.y) })).filter((o) => o.d < 520).sort((a, b) => a.d - b.d)[0];
+      if (!prey) return false;
+      const p = move(prey.l.x, prey.l.y, -Math.sin(prey.l.yaw) * 75, -Math.cos(prey.l.yaw) * 75);
+      if (Math.hypot(p.x - prey.l.x, p.y - prey.l.y) < 45) return false;
+      g.x = g.tx = p.x; g.y = g.ty = p.y; g.yaw = prey.l.yaw + Math.PI;
+      return true;
+    };
+    let ghostAmbushCd = 0;
+    ambushRef.current = () => {
+      const n = performance.now(); if (n < ghostAmbushCd) { notify(`Kagetkan siap dalam ${Math.ceil((ghostAmbushCd - n) / 1000)} detik`); return; }
+      if (ambush(meL)) { ghostAmbushCd = n + 25000; stunUntil = n + 700; audio.creak(); } else notify("Tidak ada pemburu di dekatmu.");
+    };
+    let scareCd = 0, lastGhostD = 9999;
     // AI ghost (simulated by the host when nobody plays the ghost)
     const bot = live[BOT_GHOST_ID];
-    let botWp = 0, botDir = 0, botStuck = 0, botSend = 0;
+    let botWp = 0, botDir = 0, botStuck = 0, botSend = 0, botAmbushAt = performance.now() + 25000, botFreeze = 0;
     const runBot = (now: number, dt: number) => {
       if (!bot) return;
+      if (now > botAmbushAt) { botAmbushAt = now + 30000 + Math.random() * 20000; if (ambush(bot)) botFreeze = now + 900; }
+      if (now < botFreeze) { bot.moving = false; if (now - botSend > 100) { botSend = now; send("pos", { id: BOT_GHOST_ID, x: Math.round(bot.x), y: Math.round(bot.y), a: Math.round(bot.yaw * 100) / 100, m: false, st: "alive", k: 0, b: 0 }); } return; }
       const prey = Object.entries(live).filter(([id, l]) => id !== BOT_GHOST_ID && l.status === "alive")
         .map(([, l]) => ({ l, d: Math.hypot(l.x - bot.x, l.y - bot.y) })).filter((o) => o.d < 380 || now < o.l.shoutUntil).sort((a, b) => a.d - b.d)[0];
       let tx: number, ty: number;
@@ -208,13 +232,19 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       if (amGhost && !countdown && !ended) {
         for (const [id, l] of Object.entries(live)) if (id !== me && l.status === "alive" && Math.hypot(l.x - meL.x, l.y - meL.y) < CATCH_DIST) { setStatus(id, "caught"); send("caught", { id }); }
       }
-      if (now - lastSend > 100) { lastSend = now; send("pos", { id: me, x: Math.round(meL.x), y: Math.round(meL.y), a: Math.round(meL.yaw * 100) / 100, m: meL.moving, st: meL.status, k: keyMask, b: batMask }); }
+      if (now - lastSend > 100) { lastSend = now; send("pos", { id: me, x: Math.round(meL.x), y: Math.round(meL.y), a: Math.round(meL.yaw * 100) / 100, p: Math.round(pitch * 100) / 100, m: meL.moving, st: meL.status, k: keyMask, b: batMask }); }
 
       // proximity fear
       const ghostId = all.find((p) => p.role === "ghost")?.id;
       const gl = ghostId ? live[ghostId] : undefined;
       const near = !amGhost && gl && meL.status === "alive" ? Math.max(0, 1 - Math.hypot(gl.x - meL.x, gl.y - meL.y) / 360) : 0;
       audio.heartbeat(near); audio.setBreath(amGhost ? 0.25 : near);
+      if (!amGhost && gl && meL.status === "alive" && !countdown && !ended) {
+        const d = Math.hypot(gl.x - meL.x, gl.y - meL.y);
+        const ang = Math.atan2(gl.x - meL.x, gl.y - meL.y) + Math.PI; const diff = Math.abs(((ang - meL.yaw) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+        if (d < 130 && (lastGhostD - d > 60 || diff < 0.7) && now > scareCd) { scareCd = now + 15000; audio.scream(); setScare(Math.random()); setTimeout(() => setScare(0), 1300); }
+        lastGhostD = d;
+      }
 
       // outcome
       if (!ended && !countdown) {
@@ -233,7 +263,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       if (meL.status !== "alive") { const alive = Object.entries(live).find(([id, l]) => l.status === "alive" && all.find((p) => p.id === id)?.role === "hunter"); if (alive) cam = alive[1]; }
       const fp = cam === meL;
       sc.frame({ dt, t, cam, yaw: fp ? meL.yaw : cam.yaw, pitch: fp ? pitch : 0, moving: meL.moving, battery: meL.battery, near, keyMask, batMask, npcs, firstPerson: fp && meL.status === "alive",
-        others: all.filter((p) => p.id !== me).map((p) => { const l = live[p.id]!; return { id: p.id, x: l.x, y: l.y, yaw: l.yaw, ghost: p.role === "ghost", shouting: now < l.shoutUntil, visible: l.status === "alive" && l !== cam }; }) });
+        others: all.filter((p) => p.id !== me).map((p) => { const l = live[p.id]!; return { id: p.id, x: l.x, y: l.y, yaw: l.yaw, ghost: p.role === "ghost", shouting: now < l.shoutUntil, visible: l.status === "alive" && l !== cam, moving: l.moving, pitch: l.pitch, emote: now < l.emoteUntil && !(PAIR_EMOTES.includes(l.emote ?? "") && l.moving) ? l.emote : null }; }) });
       if (now - hudT > 200) {
         hudT = now;
         setHud({ time: Math.ceil(timeLeft), keys: [0, 1, 2, 3, 4].filter((i) => keyMask & (1 << i)).length, battery: meL.battery, near, room: roomAt(meL.x, meL.y), cd: countdown ? Math.ceil((startedAt - Date.now()) / 1000) : 0, statuses: Object.fromEntries(Object.entries(live).map(([id, l]) => [id, l.status])) });
@@ -290,11 +320,11 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
         {bubbles.map((b) => <div key={b.k} className="animate-in fade-in slide-in-from-right flex items-center gap-1.5 rounded-full bg-card/85 px-3 py-1 text-sm"><EmoteIcon id={b.e} className="size-4 text-primary" /><b>{b.nama}</b> {b.target ? (b.e === "hug" ? `memeluk ${b.target}` : `mencium ${b.target}`) : emoteLabel(b.e)}</div>)}
       </div>
       <div className="absolute bottom-32 right-6 flex flex-col items-end gap-2">
-        {emoteOpen && <div className="grid grid-cols-3 gap-1 rounded-xl bg-card/85 p-1.5">
-          {EMOTES.map((e) => <button key={e.id} onPointerDown={() => { emoteRef.current(e.id); setEmoteOpen(false); }} className="flex size-12 flex-col items-center justify-center rounded-lg bg-muted text-foreground"><EmoteIcon id={e.id} className="size-5" /><span className="text-[8px]">{e.label}</span></button>)}
-        </div>}
         <button onPointerDown={() => setEmoteOpen((o) => !o)} className="flex size-12 items-center justify-center rounded-full border border-border bg-card/80 text-foreground" aria-label="Emote"><EmoteIcon id="dance" className="size-5" /></button>
       </div>
+      <EmoteWheel open={emoteOpen} onClose={() => setEmoteOpen(false)} onPick={(id) => emoteRef.current(id)} />
+      {amGhost && !spectating && <button onPointerDown={() => ambushRef.current()} className="absolute bottom-8 right-6 flex size-20 flex-col items-center justify-center rounded-full border-2 border-primary bg-blood/80 text-[10px] font-bold text-primary-foreground glow-blood"><Ghost className="size-6" />KAGETKAN</button>}
+      {scare > 0 && <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-void/70"><img src={scareUrl} alt="" className="hm-scare h-[90vh] max-w-none" style={{ filter: "drop-shadow(0 0 40px hsl(350 90% 40%))" }} /></div>}
       {/* minimap */}
       <div className="pointer-events-none absolute right-2 top-12 rounded-md border border-border bg-void/70 p-1">
         <canvas ref={mapRef} width={150} height={100} className="block h-[100px] w-[150px]" />
