@@ -1,3 +1,4 @@
+import { MicButton } from "@/components/MicButton";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -176,7 +177,7 @@ function RoomPage() {
   const ghostWanted = players.filter((p) => p.pref === "ghost").length;
   return (
     <main className="relative flex h-full min-h-full flex-col items-center justify-center gap-3 p-4">
-      <header className="absolute inset-x-0 top-0 z-30 flex items-start gap-2 p-2"><div className="w-56"><ProfileCorner /></div><div className="flex-1" /><SocialPanel room={code} /><MuteButton /></header>
+      <header className="absolute inset-x-0 top-0 z-30 flex items-start gap-2 p-2"><div className="w-56"><ProfileCorner /></div><div className="flex-1" /><SocialPanel room={code} /><MicButton code={code} me={account.id} /><MuteButton /></header>
       <button onClick={leave} className="absolute bottom-3 left-3 inline-flex items-center gap-1 text-sm text-muted-foreground"><ArrowLeft className="size-4" /> Keluar</button>
       <h1 className="font-horror text-3xl text-primary">LOBBY {code}</h1>
       {err && <p className="text-sm text-destructive">{err}</p>}

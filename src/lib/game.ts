@@ -35,6 +35,13 @@ function vWall(x: number, y: number, len: number, doorAt?: number): Rect[] {
   ];
 }
 
+/** Swinging doors in every doorway: hinge at one side, v=true when the door sits in a vertical wall. */
+export const DOORS: { x: number; y: number; v: boolean }[] = [
+  { x: RW, y: 250, v: true }, { x: RW * 2, y: 320, v: true }, { x: RW, y: 700, v: true }, { x: RW * 2, y: 780, v: true },
+  { x: 250, y: RH, v: false }, { x: 750, y: RH, v: false }, { x: 1250, y: RH, v: false },
+];
+export const DOOR_W = DOOR;
+
 export const WALLS: Rect[] = [
   ...hWall(0, T / 2, WORLD.w), ...hWall(0, WORLD.h - T / 2, WORLD.w),
   ...vWall(T / 2, 0, WORLD.h), ...vWall(WORLD.w - T / 2, 0, WORLD.h),

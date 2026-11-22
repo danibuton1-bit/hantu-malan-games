@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageCircle, Send } from "lucide-react";
-import { Battery, Clock, Ghost, KeyRound, Megaphone } from "lucide-react";
+import { Battery, Ghost, KeyRound, Megaphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { batterySvg, characterSvg, CHARACTERS, exclaimSvg, ghostSvg, keySvg, kuntilanakSvg, loadImg, pocongSvg, type CharId } from "@/lib/art";
 import { audio } from "@/lib/audio";
@@ -9,6 +9,7 @@ import { CharImg, EmoteIcon, EmoteWheel } from "./Art";
 import { Bubble } from "./Social";
 import { Joystick } from "./Joystick";
 import { createScene, LOW_END } from "@/lib/scene3d";
+import { MicButton } from "./MicButton";
 import { toContent } from "@/lib/orient";
 import { PAIR_EMOTES, emoteLabel } from "@/lib/emotes";
 import { MuteButton } from "./MuteButton";
@@ -156,12 +157,15 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       let tx: number, ty: number;
       if (prey) { tx = prey.l.x; ty = prey.l.y; } else { const w = BOT_PATROL[botWp]!; tx = w[0]; ty = w[1]; if (Math.hypot(tx - bot.x, ty - bot.y) < 40) botWp = (botWp + 1) % BOT_PATROL.length; }
       let ang = Math.atan2(ty - bot.y, tx - bot.x) + botDir;
-      const sp = GHOST_SPEED * (prey ? 0.9 : 0.7) * dt;
+      const sp = GHOST_SPEED * (prey ? 0.6 : 0.5) * dt;
       const p = move(bot.x, bot.y, Math.cos(ang) * sp, Math.sin(ang) * sp);
       if (Math.hypot(p.x - bot.x, p.y - bot.y) < sp * 0.3) { botStuck += dt; if (botStuck > 0.25) { botDir = botDir ? -botDir : Math.PI / 2; botStuck = 0; } } else if (botDir && Math.random() < dt * 0.8) botDir = 0;
       ang = Math.atan2(p.y - bot.y, p.x - bot.x);
       bot.x = bot.tx = p.x; bot.y = bot.ty = p.y; bot.moving = true; bot.yaw = -ang - Math.PI / 2;
-      for (const [id, l] of Object.entries(live)) if (id !== BOT_GHOST_ID && l.status === "alive" && Math.hypot(l.x - bot.x, l.y - bot.y) < CATCH_DIST) { setStatus(id, "caught"); send("caught", { id }); }
+      // AI ghost only startles: touching a hunter sends it back to a far patrol point
+      if (Object.entries(live).some(([id, l]) => id !== BOT_GHOST_ID && l.status === "alive" && Math.hypot(l.x - bot.x, l.y - bot.y) < CATCH_DIST)) {
+        botWp = Math.floor(Math.random() * BOT_PATROL.length); const w = BOT_PATROL[(botWp + 6) % BOT_PATROL.length]!; const pp = move(w[0], w[1], 0, 0); bot.x = bot.tx = pp.x; bot.y = bot.ty = pp.y; botFreeze = now + 3000;
+      }
       if (now - botSend > 100) { botSend = now; send("pos", { id: BOT_GHOST_ID, x: Math.round(bot.x), y: Math.round(bot.y), a: Math.round(bot.yaw * 100) / 100, m: true, st: "alive", k: 0, b: 0 }); }
     };
     let mapT = 0;
@@ -230,7 +234,6 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
         if (keyMask === 31 && Math.hypot(EXIT.x - meL.x, EXIT.y - meL.y) < EXIT.r) setStatus(me, "escaped");
       }
       if (amGhost && !countdown && !ended) {
-        for (const [id, l] of Object.entries(live)) if (id !== me && l.status === "alive" && Math.hypot(l.x - meL.x, l.y - meL.y) < CATCH_DIST) { setStatus(id, "caught"); send("caught", { id }); }
       }
       if (now - lastSend > 100) { lastSend = now; send("pos", { id: me, x: Math.round(meL.x), y: Math.round(meL.y), a: Math.round(meL.yaw * 100) / 100, p: Math.round(pitch * 100) / 100, m: meL.moving, st: meL.status, k: keyMask, b: batMask }); }
 
@@ -242,13 +245,13 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       if (!amGhost && gl && meL.status === "alive" && !countdown && !ended) {
         const d = Math.hypot(gl.x - meL.x, gl.y - meL.y);
         const ang = Math.atan2(gl.x - meL.x, gl.y - meL.y) + Math.PI; const diff = Math.abs(((ang - meL.yaw) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
-        if (d < 130 && (lastGhostD - d > 60 || diff < 0.7) && now > scareCd) { scareCd = now + 15000; audio.scream(); setScare(Math.random()); setTimeout(() => setScare(0), 1300); }
+        if (d < 130 && (lastGhostD - d > 60 || diff < 0.7) && now > scareCd) { scareCd = now + 15000; stunUntil = now + 1500; audio.scream(); setScare(Math.random()); setTimeout(() => setScare(0), 1300); }
         lastGhostD = d;
       }
 
       // outcome
       if (!ended && !countdown) {
-        const res = decideOutcome(all.filter((p) => p.role === "hunter").map((p) => ({ status: live[p.id]!.status })), timeLeft);
+        const res = decideOutcome(all.filter((p) => p.role === "hunter").map((p) => ({ status: live[p.id]!.status })), Infinity);
         if (res) {
           ended = true; setOutcome(res); audio.stopAll();
           if (isHost) {
@@ -282,7 +285,6 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
   }, [code, me, players.map((p) => p.id + p.role).join(), startedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const spectating = hud.statuses[me] === "caught";
-  const mm = Math.floor(hud.time / 60), ss = String(hud.time % 60).padStart(2, "0");
   const won = outcome === "hunters" ? !amGhost : amGhost;
 
   return (
@@ -292,8 +294,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       {/* HUD */}
       <div className="absolute inset-x-0 top-0 flex items-start gap-2 p-2">
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-card/80 px-3 py-1.5 text-sm">
-          <span className={`flex items-center gap-1 ${hud.time < 60 ? "text-primary animate-pulse" : ""}`}><Clock className="size-4" />{mm}:{ss}</span>
-          <span className="flex items-center gap-1 text-gold"><KeyRound className="size-4" />{hud.keys}/{TOTAL_KEYS}</span>
+          <span className="flex items-center gap-1 text-gold"><KeyRound className="size-4" />Kunci {hud.keys}/{TOTAL_KEYS}{hud.keys >= TOTAL_KEYS && " · Kabur!"}</span>
           {!amGhost && <span className="flex items-center gap-1"><Battery className="size-4" />{Math.round(hud.battery)}%</span>}
         </div>
         <div className="flex flex-1 flex-wrap justify-center gap-1">
@@ -308,12 +309,13 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
             );
           })}
         </div>
+        <MicButton code={code} me={me} className="pointer-events-auto" />
         <MuteButton className="pointer-events-auto" />
       </div>
       <div className="absolute left-1/2 top-12 -translate-x-1/2 text-xs text-muted-foreground">{amGhost ? "HANTU ASAP" : "PEMBURU"} - {hud.room}</div>
       <div className="pointer-events-none absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/50" />
       {hud.near > 0.2 && <div className="pointer-events-none absolute inset-0 animate-pulse" style={{ background: `repeating-linear-gradient(0deg, rgba(255,255,255,${hud.near * 0.05}) 0 1px, transparent 1px 3px)`, mixBlendMode: "screen" }} />}
-      {hud.cd > 0 && <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-void/50 text-center"><div className="font-horror text-8xl text-primary">{hud.cd}</div><p className="mt-3 px-6 text-foreground">{amGhost ? "KAMU HANTU ASAP. Tangkap semua pemburu!" : "KAMU PEMBURU. Cari 5 kunci dan kabur!"}</p></div>}
+      {hud.cd > 0 && <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-void/50 text-center"><div className="font-horror text-8xl text-primary">{hud.cd}</div><p className="mt-3 px-6 text-foreground">{amGhost ? "KAMU HANTU ASAP. Kagetkan para pemburu!" : "KAMU PEMBURU. Cari 5 kunci dan kabur!"}</p></div>}
       {toast && <div className="absolute left-1/2 top-20 -translate-x-1/2 rounded-lg border border-gold bg-card/90 px-4 py-2 text-center text-sm font-bold text-gold">{toast}</div>}
       {spectating && !outcome && <div className="absolute inset-x-0 top-28 text-center font-horror text-2xl text-foreground">KAMU JADI PENONTON</div>}
       <div className="pointer-events-none absolute left-1/2 top-32 flex -translate-x-1/2 flex-col items-center gap-1">

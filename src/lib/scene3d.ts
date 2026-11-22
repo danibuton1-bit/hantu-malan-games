@@ -1,6 +1,7 @@
 // First-person 3D renderer for the shared 2D game world. World px -> meters via U.
 import * as THREE from "three";
-import { BATTERIES, EXIT, KEYS, ROOMS, WALLS, WORLD } from "./game";
+import { BATTERIES, DOORS, DOOR_W, EXIT, KEYS, ROOMS, WALLS, WORLD } from "./game";
+import { audio } from "./audio";
 import { CHARACTERS, isChar, type CharId } from "./art";
 import { buildAvatar, nameTag, type Avatar } from "./avatar3d";
 
@@ -74,6 +75,20 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
     const m = new THREE.Mesh(new THREE.BoxGeometry(w.w * U, h, w.h * U), isWall ? wallMat : furnMat);
     m.position.set((w.x + w.w / 2) * U, h / 2, (w.y + w.h / 2) * U); scene.add(m);
   }
+  // doors (auto-swing open when anyone is near)
+  const doorMat = Mat({ map: woodTex("#4a2c18"), roughness: 0.9 });
+  const doors = DOORS.map((d) => {
+    const pivot = new THREE.Group();
+    const w = DOOR_W * U * 0.96, h = WALL_H * 0.85;
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.08), doorMat);
+    panel.position.set(w / 2, h / 2, 0);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), Mat({ color: 0xc9a040 }));
+    knob.position.set(w - 0.15, h * 0.5, 0.07); pivot.add(panel, knob);
+    if (d.v) { pivot.position.set(d.x * U, 0, (d.y - DOOR_W / 2) * U); pivot.rotation.y = -Math.PI / 2; }
+    else pivot.position.set((d.x - DOOR_W / 2) * U, 0, d.y * U);
+    scene.add(pivot);
+    return { d, pivot, base: pivot.rotation.y, open: 0, was: false };
+  });
   // graves
   const graveMat = Mat({ color: 0x5a5d58, roughness: 1 });
   for (const [gx, gy] of [[1060, 600], [1260, 640], [1380, 880], [1080, 900]] as const) {
@@ -163,6 +178,13 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
       others: { id: string; x: number; y: number; yaw: number; visible: boolean; shouting: boolean; ghost: boolean; moving: boolean; pitch: number; emote: string | null }[];
       firstPerson: boolean;
     }) {
+      for (const dr of doors) {
+        const near = [st.cam, ...st.others.filter((o) => o.visible || o.ghost)].some((p) => Math.hypot(p.x - dr.d.x, p.y - dr.d.y) < 120);
+        if (near && !dr.was && Math.hypot(st.cam.x - dr.d.x, st.cam.y - dr.d.y) < 160) audio.creak();
+        dr.was = near;
+        dr.open += ((near ? 1 : 0) - dr.open) * Math.min(1, st.dt * 4);
+        dr.pivot.rotation.y = dr.base + dr.open * 1.6;
+      }
       if (st.moving) bobT += st.dt * 9;
       const bob = st.firstPerson ? Math.sin(bobT) * 0.04 : 0;
       const shake = st.near > 0.55 ? (Math.random() - 0.5) * st.near * 0.03 : 0;
