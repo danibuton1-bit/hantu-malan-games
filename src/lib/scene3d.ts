@@ -1,6 +1,8 @@
 // First-person 3D renderer for the shared 2D game world. World px -> meters via U.
 import * as THREE from "three";
-import { BATTERIES, DOORS, DOOR_W, EXIT, KEYS, ROOMS, WALLS, WORLD } from "./game";
+import { BATTERIES, DOORS, DOOR_W, EXIT, KEYS, MAP_ID, ROOMS, WALLS, WORLD, addSolids, type Rect } from "./game";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import villaGlb from "@/assets/villa_interior.glb.asset.json";
 import { audio } from "./audio";
 import { CHARACTERS, isChar, type CharId } from "./art";
 import { buildAvatar, nameTag, type Avatar } from "./avatar3d";
@@ -36,6 +38,31 @@ const wallTex = canvasTex((g, s) => {
   g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(0, s - 30, s, 30);
 }, 1);
 
+function loadInterior(scene: THREE.Scene, r: { x: number; y: number; w: number; h: number }) {
+  new GLTFLoader().load(villaGlb.url, (gltf) => {
+    const root = gltf.scene;
+    const W = r.w * U, D = r.h * U;
+    let b = new THREE.Box3().setFromObject(root); let sz = b.getSize(new THREE.Vector3());
+    if ((sz.z > sz.x) !== (D > W)) { root.rotation.y = Math.PI / 2; b = new THREE.Box3().setFromObject(root); sz = b.getSize(new THREE.Vector3()); }
+    const k = Math.min(W / sz.x, D / sz.z) * 0.97;
+    root.scale.multiplyScalar(k);
+    b = new THREE.Box3().setFromObject(root); const c = b.getCenter(new THREE.Vector3());
+    root.position.set((r.x + r.w / 2) * U - c.x, 0.01 - b.min.y, (r.y + r.h / 2) * U - c.z);
+    root.updateMatrixWorld(true);
+    const H = sz.y * k, solids: Rect[] = [];
+    root.traverse((o) => {
+      const m = o as THREE.Mesh; if (!m.isMesh) return;
+      const bb = new THREE.Box3().setFromObject(m); const s = bb.getSize(new THREE.Vector3());
+      const wide = s.x > W * 0.55 || s.z > D * 0.55;
+      if (bb.min.y > H * 0.7 || (wide && s.y > H * 0.5)) { m.visible = false; return; }
+      if (wide || s.y < 0.35 || bb.min.y > 0.6 || s.x < 0.15 || s.z < 0.15) return;
+      solids.push({ x: bb.min.x / U, y: bb.min.z / U, w: s.x / U, h: s.z / U });
+    });
+    addSolids(solids);
+    scene.add(root);
+  });
+}
+
 type Ent = { sprite: THREE.Sprite; light?: THREE.PointLight };
 
 export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "ghost"; amGhost: boolean; imgs: Record<string, string> }) {
@@ -56,7 +83,7 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
 
   // floors and ceilings per room
   for (const r of ROOMS) {
-    const outdoor = r.name.startsWith("Kuburan");
+    const outdoor = !!r.outdoor;
     const tex = outdoor ? canvasTex((g, s) => { g.fillStyle = "#1a2414"; g.fillRect(0, 0, s, s); for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(${40 + Math.random() * 40},${60 + Math.random() * 50},30,.6)`; g.fillRect(Math.random() * s, Math.random() * s, 2, 5); } }, 1) : woodTex(r.floor === "#18222a" ? "#2b3a40" : "#4a2e1e");
     tex.repeat.set(r.w * U / 3, r.h * U / 3);
     const f = new THREE.Mesh(new THREE.PlaneGeometry(r.w * U, r.h * U), Mat({ map: tex, roughness: 0.9 }));
@@ -89,9 +116,11 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
     scene.add(pivot);
     return { d, pivot, base: pivot.rotation.y, open: 0, was: false };
   });
+  // 3D interior model fills its room; its walls/ceiling are hidden so our doorways stay open
+  for (const r of ROOMS) if (r.glb) loadInterior(scene, r);
   // graves
   const graveMat = Mat({ color: 0x5a5d58, roughness: 1 });
-  for (const [gx, gy] of [[1060, 600], [1260, 640], [1380, 880], [1080, 900]] as const) {
+  for (const [gx, gy] of (MAP_ID === "rumah" ? [[1060, 600], [1260, 640], [1380, 880], [1080, 900]] : []) as [number, number][]) {
     const g = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.1, 0.2), graveMat); g.position.set((gx + 17) * U, 0.55, (gy + 22) * U); g.rotation.z = 0.08; scene.add(g);
     const top = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.2, 16, 1, false, 0, Math.PI), graveMat); top.rotation.set(Math.PI / 2, 0, Math.PI / 2); top.position.set((gx + 17) * U, 1.1, (gy + 22) * U); scene.add(top);
   }

@@ -6,7 +6,7 @@ import { ArrowLeft, Crown, Ghost } from "lucide-react";
 import { CharImg, EmoteIcon, EmoteWheel } from "@/components/Art";
 import { SocialPanel } from "@/components/Social";
 import { EMOTE_MS, PAIR_EMOTES } from "@/lib/emotes";
-import { assignRoles } from "@/lib/game";
+import { assignRoles, MAPS, setMap, type MapId } from "@/lib/game";
 import { normalizeChar } from "@/lib/art";
 
 const SLOT = 108;
@@ -107,7 +107,7 @@ function RoomPage() {
 
   const lobby = room?.status === "lobby";
   useEffect(() => {
-    if (!lobby) { myReady.current = false; void lobbyCh.current?.track({ ready: false }); }
+    if (!lobby) { myReady.current = false; void lobbyCh.current?.track({ ready: false, map: myMapRef.current }); }
   }, [lobby]);
 
   // lobby emotes, shared with everyone in this room
@@ -115,6 +115,9 @@ function RoomPage() {
   const [readyIds, setReadyIds] = useState<Set<string>>(new Set());
   const [wheel, setWheel] = useState(false);
   const myReady = useRef(false);
+  const [myMap, setMyMap] = useState<MapId>("rumah");
+  const myMapRef = useRef<MapId>("rumah");
+  const [presMaps, setPresMaps] = useState<Record<string, MapId>>({});
   const lobbyCh = useRef<RealtimeChannel | null>(null);
   const playEmote = useCallback((id: string, e: string, target: string | null) => {
     const ids = players.map((p) => p.id);
@@ -140,14 +143,19 @@ function RoomPage() {
     ch.on("presence", { event: "sync" }, () => {
       const st = ch.presenceState<{ ready: boolean }>();
       setReadyIds(new Set(Object.entries(st).filter(([, v]) => v.some((x) => x.ready)).map(([id]) => id)));
+      setPresMaps(Object.fromEntries(Object.entries(st).map(([id, v]) => [id, ((v[0] as { map?: MapId } | undefined)?.map) ?? "rumah"])));
     });
-    ch.subscribe((status) => { if (status === "SUBSCRIBED") { lobbyCh.current = ch; void ch.track({ ready: myReady.current }); } });
+    ch.subscribe((status) => { if (status === "SUBSCRIBED") { lobbyCh.current = ch; void ch.track({ ready: myReady.current, map: myMapRef.current }); } });
     return () => { lobbyCh.current = null; void supabase.removeChannel(ch); };
   }, [code, account]);
   function toggleReady() {
     myReady.current = !myReady.current;
     if (account) setReadyIds((r) => { const n = new Set(r); if (myReady.current) n.add(account.id); else n.delete(account.id); return n; });
-    void lobbyCh.current?.track({ ready: myReady.current });
+    void lobbyCh.current?.track({ ready: myReady.current, map: myMapRef.current });
+  }
+  function pickMap(m: MapId) {
+    myMapRef.current = m; setMyMap(m);
+    void lobbyCh.current?.track({ ready: myReady.current, map: m });
   }
   function doEmote(e: string) {
     if (!account) return;
@@ -167,8 +175,10 @@ function RoomPage() {
   );
 
   const isHost = players[0]?.id === account.id;
+  const mapId: MapId = isHost ? myMap : (presMaps[players[0]?.id ?? ""] ?? "rumah");
   const inRoom = players.some((p) => p.id === account.id);
   if (room.status !== "lobby" && inRoom && players.every((p) => p.role)) {
+    setMap(mapId);
     return <Game code={code} me={account.id} players={players} startedAt={startedAt} isHost={isHost} onBackToLobby={backToLobby} onLeave={leave} />;
   }
 
@@ -201,6 +211,10 @@ function RoomPage() {
       {inRoom && <button onClick={() => setWheel(true)} className="flex items-center gap-1 rounded-full border-2 border-gold/70 bg-card/80 px-4 py-2 text-xs font-bold"><EmoteIcon id="dance" className="size-4" /> EMOTE</button>}
       <EmoteWheel open={wheel} onClose={() => setWheel(false)} onPick={doEmote} />
       <p className="text-center text-xs text-muted-foreground">{players.length}/4 pemain · {ghostWanted === 0 || players.length < 2 ? "Tidak ada yang jadi hantu: Hantu AI akan berburu kalian." : "Satu hantu dipilih acak dari yang ingin jadi hantu."}</p>
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-card/80 p-1.5 text-xs">
+        <span className="text-muted-foreground">Map:</span>
+        {MAPS.map((m) => <Button key={m.id} size="sm" title={m.desc} variant={mapId === m.id ? "default" : "secondary"} disabled={!isHost} onClick={() => pickMap(m.id)}>{m.name}</Button>)}
+      </div>
       {isHost ? <>
         <Button className="glow-blood font-horror text-xl" size="lg" onClick={start} disabled={!allReady}>MULAI PERMAINAN</Button>
         {!allReady && <p className="text-xs text-muted-foreground">Menunggu semua pemain menekan SIAP...</p>}

@@ -40,3 +40,19 @@ describe("assignRoles", () => {
     expect(r).toEqual({ roles: { a: "hunter" }, bot: true });
   });
 });
+
+import * as G from "./game";
+describe("villa map", () => {
+  it("switches every client to the villa layout with 5 reachable keys", () => {
+    G.setMap("villa");
+    expect(G.KEYS).toHaveLength(5);
+    for (const k of G.KEYS) expect(G.WALLS.some((w) => G.circleHitsRect(k.x, k.y, G.PLAYER_R, w))).toBe(false);
+    expect(G.DOORS.length).toBeGreaterThanOrEqual(6);
+  });
+  it("3D furniture never blocks a key", () => {
+    const before = G.WALLS.length;
+    G.addSolids([{ x: G.KEYS[0]!.x - 10, y: G.KEYS[0]!.y - 10, w: 20, h: 20 }]);
+    expect(G.WALLS.length).toBe(before);
+    G.setMap("rumah");
+  });
+});

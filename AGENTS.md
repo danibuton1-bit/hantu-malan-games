@@ -35,3 +35,5 @@ use the editor.
 - Private chat and friendships are only reachable through SECURITY DEFINER RPCs that check `id + kode_id`; world chat is a public table read limited to the last 24h and pruned on each send. Why: there is no Cloud Auth session to scope RLS by.
 - When no player picks the ghost, the room host's client simulates the AI ghost (`BOT_GHOST_ID`) and broadcasts its position like a player. Why: keeps the game serverless and in sync with existing realtime broadcast.
 - Character art is SVG strings rendered inline (`CharImg`) with CSS-animated parts (`hm-lid`, `hm-armL/R`, `hm-body`); emotes are CSS classes, not emoji.
+- Maps live in `src/lib/game.ts` as `export let` layouts swapped by `setMap(id)` before the scene mounts; the host's choice travels in lobby presence (`map`), not the DB. Why: keeps all clients deterministic without a schema change.
+- The villa living room is a GLB interior (`src/assets/villa_interior.glb.asset.json`); its walls/ceiling are hidden at load and its furniture becomes collision via `addSolids`, which skips anything covering keys, spawns, exit or doors. Why: our own walls own the doorways and doors.
