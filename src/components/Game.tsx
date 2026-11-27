@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, Send } from "lucide-react";
+import { Lightbulb, MessageCircle, Send } from "lucide-react";
 import { Battery, Ghost, KeyRound, Megaphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { batterySvg, characterSvg, CHARACTERS, exclaimSvg, ghostSvg, keySvg, kuntilanakSvg, loadImg, pocongSvg, type CharId } from "@/lib/art";
 import { audio } from "@/lib/audio";
-import { BATTERIES, BOT_GHOST_ID, BOT_PATROL, CATCH_DIST, ROOMS, WALLS, WORLD, decideOutcome, EXIT, GAME_SECONDS, GHOST_SPAWN, HUNTER_SPAWNS, KEYS, move, npcsAt, roomAt, TOTAL_KEYS } from "@/lib/game";
+import { BATTERIES, BOT_GHOST_ID, BOT_PATROL, CATCH_DIST, MAP_ID, ROOMS, WALLS, WORLD, decideOutcome, EXIT, GAME_SECONDS, GHOST_SPAWN, HUNTER_SPAWNS, KEYS, move, npcsAt, roomAt, TOTAL_KEYS } from "@/lib/game";
 import { CharImg, EmoteIcon, EmoteWheel } from "./Art";
 import { Bubble } from "./Social";
 import { Joystick } from "./Joystick";
@@ -18,11 +18,19 @@ import { Button } from "./ui/button";
 export type GamePlayer = { id: string; nama: string; username: string; karakter: CharId; role: "ghost" | "hunter" | null; status: string; pref?: string };
 type Live = { yaw: number; x: number; y: number; tx: number; ty: number; status: string; shoutUntil: number; moving: boolean; battery: number; pitch: number; emote: string | null; emoteUntil: number };
 
+type GameDebug = { getState: () => { x: number; y: number; battery: number; keys: number; ready: boolean; scene: ReturnType<ReturnType<typeof createScene>["inspect"]> }; move: (dx: number, dy: number) => void; look: (yaw: number, pitch?: number) => void; toggleLights: () => void };
+
+declare global { interface Window { __game?: GameDebug } }
+
 const HUNTER_SPEED = 150, GHOST_SPEED = 168;
 
 export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLeave }: {
   code: string; me: string; players: GamePlayer[]; startedAt: number; isHost: boolean; onBackToLobby: () => void; onLeave: () => void;
 }) {
+  const [roomLoading, setRoomLoading] = useState(MAP_ID === "villa");
+  const [roomError, setRoomError] = useState("");
+  const [lightsOn, setLightsOn] = useState(true);
+  const lightRef = useRef<() => void>(() => {});
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const joy = useRef({ x: 0, y: 0 });
   const keysDown = useRef<Record<string, boolean>>({});
@@ -65,6 +73,9 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
     (Object.keys(CHARACTERS) as CharId[]).forEach((c) => { imgUrls[c] = url(characterSvg(c)); });
     const sc = createScene(canvasRef.current!, { me: amGhost ? "ghost" : meP.karakter, amGhost, imgs: imgUrls });
     all.forEach((p) => { if (p.id !== me) sc.ensurePlayer(p.id, p.role === "ghost" ? "ghost" : p.karakter, p.role !== "ghost", p.nama); });
+    let sceneReady = false, active = true;
+    setRoomLoading(MAP_ID === "villa"); setRoomError(""); setLightsOn(true);
+    void sc.ready.then(() => { if (active) { sceneReady = true; setRoomLoading(false); } }).catch((e: unknown) => { if (active) setRoomError(e instanceof Error ? e.message : "Ruangan gagal dimuat."); });
     sc.resize(); const onResize = () => sc.resize(); window.addEventListener("resize", onResize);
     let pitch = 0;
     const cv = canvasRef.current!;
@@ -93,14 +104,26 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       if (!fresh) return;
       keyMask |= mask;
       KEYS.forEach((k) => { if (fresh & (1 << k.id)) { audio.pickup(); notify(local ? `Kamu dapat ${k.name}!` : `Tim dapat ${k.name}!`); } });
-      if (keyMask === 31) { audio.creak(); setTimeout(() => notify("Semua kunci terkumpul! Kabur lewat gerbang Kuburan Belakang!"), 1200); }
+      if (keyMask === 31) { audio.creak(); setTimeout(() => notify("Semua kunci terkumpul! Kabur lewat pintu keluar!"), 1200); }
     };
+    let lamp = { on: true, clock: 0, actor: "" };
+    const applyLamp = (next: typeof lamp) => {
+      if (!players.some((p) => p.id === next.actor) || !Number.isFinite(next.clock) || typeof next.on !== "boolean") return;
+      if (next.clock < lamp.clock || (next.clock === lamp.clock && next.actor <= lamp.actor)) return;
+      lamp = next; sc.setLights(lamp.on); setLightsOn(lamp.on);
+    };
+    lightRef.current = () => {
+      if (MAP_ID !== "villa" || !sceneReady) return;
+      const next = { on: !lamp.on, clock: Math.max(Date.now(), lamp.clock + 1), actor: me };
+      applyLamp(next); void ch.send({ type: "broadcast", event: "lights", payload: next });
+    };
+    ch.on("broadcast", { event: "lights" }, ({ payload }) => applyLamp(payload as typeof lamp));
     ch.on("broadcast", { event: "pos" }, ({ payload }) => {
-      const p = payload as { id: string; a?: number; p?: number; x: number; y: number; m: boolean; st: string; k: number; b: number };
+      const p = payload as { id: string; a?: number; p?: number; x: number; y: number; m: boolean; st: string; k: number; b: number; lamp?: typeof lamp };
       const l = live[p.id]; if (!l) return;
       l.tx = p.x; l.ty = p.y; l.moving = p.m; if (p.a !== undefined) l.yaw = p.a; if (p.p !== undefined) l.pitch = p.p;
       if (p.st !== "alive") setStatus(p.id, p.st);
-      gainKeys(p.k, false); batMask |= p.b;
+      gainKeys(p.k, false); batMask |= p.b; if (p.lamp) applyLamp(p.lamp);
     });
     ch.on("broadcast", { event: "caught" }, ({ payload }) => setStatus((payload as { id: string }).id, "caught"));
     ch.on("broadcast", { event: "shout" }, ({ payload }) => { const l = live[(payload as { id: string }).id]; if (l) { l.shoutUntil = performance.now() + 2500; audio.shout(); } });
@@ -203,7 +226,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       let ix = (k["d"] || k["arrowright"] ? 1 : 0) - (k["a"] || k["arrowleft"] ? 1 : 0) + joy.current.x;
       let iy = (k["s"] || k["arrowdown"] ? 1 : 0) - (k["w"] || k["arrowup"] ? 1 : 0) + joy.current.y;
       const mag = Math.hypot(ix, iy); if (mag > 1) { ix /= mag; iy /= mag; }
-      const canMove = !countdown && !ended && meL.status === "alive" && now > stunUntil;
+      const canMove = sceneReady && !countdown && !ended && meL.status === "alive" && now > stunUntil;
       if (walkTo && canMove && now < walkTo.until && Math.hypot(walkTo.x - meL.x, walkTo.y - meL.y) > 38) {
         const a = Math.atan2(walkTo.x - meL.x, walkTo.y - meL.y); meL.yaw = a + Math.PI;
         ix = 0; iy = -1;
@@ -219,11 +242,11 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       meL.tx = meL.x; meL.ty = meL.y;
       for (const [id, l] of Object.entries(live)) if (id !== me) { l.x += (l.tx - l.x) * Math.min(1, dt * 12); l.y += (l.ty - l.y) * Math.min(1, dt * 12); }
 
-      if (bot && isHost && !countdown && !ended) runBot(now, dt);
+      if (sceneReady && bot && isHost && !countdown && !ended) runBot(now, dt);
       if (now - mapT > 120) { mapT = now; drawMap(); }
       const npcs = npcsAt(t);
-      if (!amGhost && meL.status === "alive" && !countdown && !ended) {
-        meL.battery = Math.max(0, meL.battery - dt * 1.1);
+      if (sceneReady && !amGhost && meL.status === "alive" && !countdown && !ended) {
+        if (!sc.isLit(meL.x, meL.y)) meL.battery = Math.max(0, meL.battery - dt * 1.1);
         KEYS.forEach((key) => { if (!(keyMask & (1 << key.id)) && Math.hypot(key.x - meL.x, key.y - meL.y) < 34) gainKeys(1 << key.id, true); });
         BATTERIES.forEach((b) => { if (!(batMask & (1 << b.id)) && Math.hypot(b.x - meL.x, b.y - meL.y) < 34) { batMask |= 1 << b.id; meL.battery = Math.min(100, meL.battery + 60); audio.pickup(); notify("Baterai senter terisi!"); } });
         if (now > npcCd) for (const n of npcs) if (Math.hypot(n.x - meL.x, n.y - meL.y) < 40) {
@@ -235,7 +258,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       }
       if (amGhost && !countdown && !ended) {
       }
-      if (now - lastSend > 100) { lastSend = now; send("pos", { id: me, x: Math.round(meL.x), y: Math.round(meL.y), a: Math.round(meL.yaw * 100) / 100, p: Math.round(pitch * 100) / 100, m: meL.moving, st: meL.status, k: keyMask, b: batMask }); }
+      if (now - lastSend > 100) { lastSend = now; send("pos", { id: me, x: Math.round(meL.x), y: Math.round(meL.y), a: Math.round(meL.yaw * 100) / 100, p: Math.round(pitch * 100) / 100, m: meL.moving, st: meL.status, k: keyMask, b: batMask, lamp }); }
 
       // proximity fear
       const ghostId = all.find((p) => p.role === "ghost")?.id;
@@ -273,8 +296,15 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       }
     };
 
+    if (import.meta.env.DEV) window.__game = {
+      getState: () => ({ x: meL.x, y: meL.y, battery: meL.battery, keys: keyMask, ready: sceneReady, scene: sc.inspect() }),
+      move: (dx, dy) => { if (sceneReady) { const p = move(meL.x, meL.y, dx, dy); meL.x = p.x; meL.y = p.y; } },
+      look: (yaw, nextPitch = 0) => { meL.yaw = yaw; pitch = nextPitch; },
+      toggleLights: () => lightRef.current(),
+    };
     raf = requestAnimationFrame(loop);
     return () => {
+      active = false; if (import.meta.env.DEV) delete window.__game;
       cancelAnimationFrame(raf); clearTimeout(toastTimer); sc.dispose();
       window.removeEventListener("resize", onResize); document.removeEventListener("mousemove", onMouse); cv.removeEventListener("click", onClick);
       cv.removeEventListener("pointerdown", onPD); window.removeEventListener("pointermove", onPM); window.removeEventListener("pointerup", onPU);
@@ -290,7 +320,11 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
   return (
     <div className="fixed inset-0 select-none overflow-hidden bg-void">
       <canvas ref={canvasRef} className="h-full w-full touch-none" style={{ filter: spectating ? "grayscale(1) contrast(1.1)" : amGhost ? "saturate(1.3) hue-rotate(-20deg)" : undefined }} />
-      <div className="pointer-events-none absolute inset-0" style={{ background: `radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,${0.75 + hud.near * 0.2}) 100%)`, boxShadow: hud.near > 0.3 ? `inset 0 0 ${80 * hud.near}px rgba(170,0,20,.6)` : undefined }} />
+      {MAP_ID !== "villa" && <div className="pointer-events-none absolute inset-0" style={{ background: `radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,${0.75 + hud.near * 0.2}) 100%)`, boxShadow: hud.near > 0.3 ? `inset 0 0 ${80 * hud.near}px rgba(170,0,20,.6)` : undefined }} />}
+      {(roomLoading || roomError) && <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-void/90 p-6 text-center">
+        <p className="text-foreground">{roomError || "Memuat ruangan 3D…"}</p>
+        {roomError && <Button onClick={onLeave}>Kembali</Button>}
+      </div>}
       {/* HUD */}
       <div className="absolute inset-x-0 top-0 flex items-start gap-2 p-2">
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-card/80 px-3 py-1.5 text-sm">
@@ -309,6 +343,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
             );
           })}
         </div>
+        {MAP_ID === "villa" && <Button variant="secondary" size="icon" disabled={roomLoading || !!roomError} aria-label={lightsOn ? "Matikan lampu" : "Nyalakan lampu"} title={lightsOn ? "Matikan lampu" : "Nyalakan lampu"} aria-pressed={lightsOn} onClick={() => lightRef.current()}><Lightbulb className={lightsOn ? "text-gold" : "text-muted-foreground"} /></Button>}
         <MicButton code={code} me={me} className="pointer-events-auto" />
         <MuteButton className="pointer-events-auto" />
       </div>
@@ -329,7 +364,7 @@ export function Game({ code, me, players, startedAt, isHost, onBackToLobby, onLe
       {scare > 0 && <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-void/70"><img src={scareUrl} alt="" className="hm-scare h-[90vh] max-w-none" style={{ filter: "drop-shadow(0 0 40px hsl(350 90% 40%))" }} /></div>}
       {/* minimap */}
       <div className="pointer-events-none absolute right-2 top-12 rounded-md border border-border bg-void/70 p-1">
-        <canvas ref={mapRef} width={150} height={100} className="block h-[100px] w-[150px]" />
+        <canvas ref={mapRef} width={150} height={Math.round(150 * WORLD.h / WORLD.w)} className="block w-[150px]" />
         <div className="mt-0.5 flex justify-between px-0.5 text-[8px] text-muted-foreground"><span className="text-gold">● kunci</span><span className="text-chart-4">▮ baterai</span><span className="text-primary">◯ keluar</span></div>
       </div>
       {/* in-game chat */}

@@ -47,12 +47,42 @@ describe("villa map", () => {
     G.setMap("villa");
     expect(G.KEYS).toHaveLength(5);
     for (const k of G.KEYS) expect(G.WALLS.some((w) => G.circleHitsRect(k.x, k.y, G.PLAYER_R, w))).toBe(false);
-    expect(G.DOORS.length).toBeGreaterThanOrEqual(6);
+    expect(G.DOORS).toHaveLength(0);
   });
   it("3D furniture never blocks a key", () => {
     const before = G.WALLS.length;
-    G.addSolids([{ x: G.KEYS[0]!.x - 10, y: G.KEYS[0]!.y - 10, w: 20, h: 20 }]);
+    G.addSolids([{ x: (G.KEYS[0]?.x ?? 0) - 10, y: (G.KEYS[0]?.y ?? 0) - 10, w: 20, h: 20 }]);
     expect(G.WALLS.length).toBe(before);
+    G.setMap("rumah");
+  });
+});
+
+
+describe("original villa interior", () => {
+  it("uses only the uploaded room without invented adjoining rooms", () => {
+    G.setMap("villa");
+    expect(G.ROOMS).toHaveLength(1);
+    expect(G.ROOMS[0]?.glb).toBe(true);
+    expect(G.WORLD).toEqual({ w: 450, h: 440 });
+    G.setMap("rumah");
+  });
+  it("all five keys and the exit are reachable from the native floor spawn", () => {
+    G.setMap("villa");
+    const spawn = G.HUNTER_SPAWNS[0];
+    if (!spawn) throw new Error("Missing villa spawn");
+    const visited = new Set<string>([`${spawn.x},${spawn.y}`]);
+    const queue = [spawn];
+    for (let i = 0; i < queue.length; i++) {
+      const p = queue[i]; if (!p) continue;
+      for (const [dx, dy] of [[6, 0], [-6, 0], [0, 6], [0, -6]]) {
+        if (dx === undefined || dy === undefined) continue;
+        const q = { x: p.x + dx, y: p.y + dy }; const key = `${q.x},${q.y}`;
+        if (q.x < 20 || q.y < 20 || q.x > 416 || q.y > 403 || visited.has(key)) continue;
+        if (G.WALLS.some((w) => G.circleHitsRect(q.x, q.y, G.PLAYER_R, w))) continue;
+        visited.add(key); queue.push(q);
+      }
+    }
+    for (const item of [...G.KEYS, G.EXIT]) expect(visited.has(`${item.x},${item.y}`)).toBe(true);
     G.setMap("rumah");
   });
 });

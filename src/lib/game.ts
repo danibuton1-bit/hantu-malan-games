@@ -1,5 +1,8 @@
 // Shared deterministic game world: every client computes the same map, items and NPC paths.
-export const WORLD = { w: 1500, h: 1000 };
+import villa from "./villa-layout.json";
+
+const WORLD_RUMAH = { w: 1500, h: 1000 };
+export let WORLD = WORLD_RUMAH;
 export const GAME_SECONDS = 300;
 export const TOTAL_KEYS = 5;
 export const PLAYER_R = 18;
@@ -152,48 +155,19 @@ export function assignRoles(players: { id: string; pref: string }[], rand = Math
 /** AI ghost waypoints (room centres and doorways) used while it has no target. */
 const BOT_PATROL_RUMAH: [number, number][] = [[1250, 760], [1000, 780], [750, 750], [750, 520], [500, 700], [250, 750], [250, 520], [250, 250], [500, 250], [750, 300], [1000, 320], [1250, 250], [1250, 520]];
 
-// ---- Map 2: Villa Mewah (the living room is the uploaded 3D interior) ----
-const ROOMS_VILLA: Room[] = [
-  { name: "Ruang Keluarga Villa", x: 0, y: 0, w: 900, h: 600, floor: "#3a2a20", glb: true },
-  { name: "Dapur Villa", x: 900, y: 0, w: 600, h: 600, floor: "#22201a" },
-  { name: "Kamar Tidur", x: 0, y: 600, w: 500, h: 400, floor: "#2a1a24" },
-  { name: "Kolam Belakang", x: 500, y: 600, w: 500, h: 400, floor: "#142024", outdoor: true },
-  { name: "Garasi", x: 1000, y: 600, w: 500, h: 400, floor: "#1c1c1c" },
-];
-const DOORS_VILLA = [
-  { x: 900, y: 300, v: true }, { x: 500, y: 800, v: true }, { x: 1000, y: 800, v: true },
-  { x: 250, y: 600, v: false }, { x: 750, y: 600, v: false }, { x: 1200, y: 600, v: false },
-];
-const WALLS_VILLA: Rect[] = [
-  ...hWall(0, T / 2, WORLD.w), ...hWall(0, WORLD.h - T / 2, WORLD.w),
-  ...vWall(T / 2, 0, WORLD.h), ...vWall(WORLD.w - T / 2, 0, WORLD.h),
-  ...vWall(900, 0, 600, 300), ...vWall(500, 600, 400, 800), ...vWall(1000, 600, 400, 800),
-  ...hWall(0, 600, 500, 250), ...hWall(500, 600, 500, 750), ...hWall(1000, 600, 500, 1200),
-  // furniture outside the 3D living room
-  { x: 960, y: 40, w: 170, h: 50 }, { x: 1050, y: 250, w: 120, h: 60 }, { x: 60, y: 680, w: 160, h: 110 },
-  { x: 620, y: 700, w: 260, h: 150 }, { x: 1150, y: 700, w: 200, h: 100 },
-];
-const KEYS_VILLA = [
-  { id: 0, name: "Kunci Ruang Keluarga", x: 450, y: 540 },
-  { id: 1, name: "Kunci Dapur", x: 1400, y: 520 },
-  { id: 2, name: "Kunci Kamar", x: 420, y: 940 },
-  { id: 3, name: "Kunci Kolam", x: 560, y: 950 },
-  { id: 4, name: "Kunci Garasi", x: 1440, y: 940 },
-];
-const BATTERIES_VILLA = [
-  { id: 0, x: 120, y: 540 }, { id: 1, x: 1100, y: 450 }, { id: 2, x: 300, y: 880 },
-  { id: 3, x: 900, y: 940 }, { id: 4, x: 1100, y: 900 }, { id: 5, x: 800, y: 540 },
-];
-const NPC_VILLA: typeof NPC_RUMAH = [
-  { kind: "kuntilanak", pts: [[1000, 150], [1400, 150], [1400, 450], [1000, 450]], speed: 42 },
-  { kind: "pocong", pts: [[100, 840], [400, 700], [400, 900]], speed: 50 },
-  { kind: "kuntilanak", pts: [[550, 650], [950, 650], [950, 950], [550, 950]], speed: 40 },
-];
+// ---- Map 2: the original uploaded interior is the entire playable villa. ----
+const ROOMS_VILLA: Room[] = [{ name: "Villa Mewah", ...villa.floor, floor: "native", glb: true }];
+// No invented doors or rooms: the model owns every visible surface.
+const DOORS_VILLA: typeof DOORS_RUMAH = [];
+const WALLS_VILLA: Rect[] = villa.walls;
+const KEYS_VILLA = villa.keys;
+const BATTERIES_VILLA = villa.batteries;
+const NPC_VILLA: typeof NPC_RUMAH = [];
 
 export type MapId = "rumah" | "villa";
 export const MAPS: { id: MapId; name: string; desc: string }[] = [
   { id: "rumah", name: "Rumah Tua", desc: "6 ruangan, lorong, gudang & kuburan" },
-  { id: "villa", name: "Villa Mewah", desc: "Ruang keluarga 3D, dapur, kamar, kolam & garasi" },
+  { id: "villa", name: "Villa Mewah", desc: "Interior GLB asli" },
 ];
 export let MAP_ID: MapId = "rumah";
 export let ROOMS = ROOMS_RUMAH;
@@ -212,15 +186,16 @@ export function setMap(id: MapId) {
   if (id === MAP_ID) return;
   MAP_ID = id;
   const v = id === "villa";
+  WORLD = v ? villa.world : WORLD_RUMAH;
   ROOMS = v ? ROOMS_VILLA : ROOMS_RUMAH;
   DOORS = v ? DOORS_VILLA : DOORS_RUMAH;
   WALLS = [...(v ? WALLS_VILLA : WALLS_RUMAH)];
   KEYS = v ? KEYS_VILLA : KEYS_RUMAH;
   BATTERIES = v ? BATTERIES_VILLA : BATTERIES_RUMAH;
-  EXIT = v ? { x: 1420, y: 140, r: 50 } : EXIT_RUMAH;
-  HUNTER_SPAWNS = v ? [{ x: 450, y: 300 }, { x: 380, y: 380 }, { x: 520, y: 380 }] : HUNTER_SPAWNS_RUMAH;
-  GHOST_SPAWN = v ? { x: 1250, y: 880 } : GHOST_SPAWN_RUMAH;
-  BOT_PATROL = v ? [[1250, 880], [1200, 650], [1200, 300], [1000, 300], [800, 300], [450, 300], [250, 500], [250, 700], [300, 850], [560, 800], [750, 920], [1000, 800], [1250, 880]] : BOT_PATROL_RUMAH;
+  EXIT = v ? villa.exit : EXIT_RUMAH;
+  HUNTER_SPAWNS = v ? villa.spawns : HUNTER_SPAWNS_RUMAH;
+  GHOST_SPAWN = v ? villa.ghost : GHOST_SPAWN_RUMAH;
+  BOT_PATROL = v ? villa.patrol.map((p): [number, number] => [p[0] ?? 0, p[1] ?? 0]) : BOT_PATROL_RUMAH;
   NPC_PATHS = v ? NPC_VILLA : NPC_RUMAH;
 }
 

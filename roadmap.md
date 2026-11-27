@@ -7,3 +7,7 @@
 - [x] Minimap, ghost night vision
 - [x] Animated emotes incl. hug/kiss to nearest player
 - [x] Low-end Android performance mode
+- [ ] Replace the villa stand-ins with the complete original GLB interior
+- [ ] Align movement, items and escape with the original interior
+- [ ] Bright interior lighting with a shared light control and automatic flashlight
+- [ ] Verify the villa in gameplay and save changes

@@ -1,7 +1,9 @@
 // First-person 3D renderer for the shared 2D game world. World px -> meters via U.
 import * as THREE from "three";
-import { BATTERIES, DOORS, DOOR_W, EXIT, KEYS, MAP_ID, ROOMS, WALLS, WORLD, addSolids, type Rect } from "./game";
+import { BATTERIES, DOORS, DOOR_W, EXIT, KEYS, MAP_ID, ROOMS, WALLS, WORLD } from "./game";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import villaLayout from "./villa-layout.json";
 import villaGlb from "@/assets/villa_interior.glb.asset.json";
 import { audio } from "./audio";
 import { CHARACTERS, isChar, type CharId } from "./art";
@@ -38,51 +40,55 @@ const wallTex = canvasTex((g, s) => {
   g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(0, s - 30, s, 30);
 }, 1);
 
-function loadInterior(scene: THREE.Scene, r: { x: number; y: number; w: number; h: number }) {
-  new GLTFLoader().load(villaGlb.url, (gltf) => {
-    const root = gltf.scene;
-    const W = r.w * U, D = r.h * U;
-    let b = new THREE.Box3().setFromObject(root); let sz = b.getSize(new THREE.Vector3());
-    if ((sz.z > sz.x) !== (D > W)) { root.rotation.y = Math.PI / 2; b = new THREE.Box3().setFromObject(root); sz = b.getSize(new THREE.Vector3()); }
-    const k = Math.min(W / sz.x, D / sz.z) * 0.97;
-    root.scale.multiplyScalar(k);
-    b = new THREE.Box3().setFromObject(root); const c = b.getCenter(new THREE.Vector3());
-    root.position.set((r.x + r.w / 2) * U - c.x, 0.01 - b.min.y, (r.y + r.h / 2) * U - c.z);
-    root.updateMatrixWorld(true);
-    const H = sz.y * k, solids: Rect[] = [];
-    root.traverse((o) => {
-      const m = o as THREE.Mesh; if (!m.isMesh) return;
-      const bb = new THREE.Box3().setFromObject(m); const s = bb.getSize(new THREE.Vector3());
-      const wide = s.x > W * 0.55 || s.z > D * 0.55;
-      if (bb.min.y > H * 0.7 || (wide && s.y > H * 0.5)) { m.visible = false; return; }
-      if (wide || s.y < 0.35 || bb.min.y > 0.6 || s.x < 0.15 || s.z < 0.15) return;
-      solids.push({ x: bb.min.x / U, y: bb.min.z / U, w: s.x / U, h: s.z / U });
-    });
-    addSolids(solids);
-    scene.add(root);
+function loadInterior(scene: THREE.Scene): Promise<THREE.Group> {
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().load(villaGlb.url, (gltf) => {
+      const root = gltf.scene;
+      // One uniform unit conversion only. Preserve every node, material and local transform.
+      root.scale.multiplyScalar(villaLayout.scale);
+      root.position.set(villaLayout.offset.x, 0, villaLayout.offset.z);
+      root.name = "villa-original";
+      root.updateMatrixWorld(true);
+      scene.add(root);
+      resolve(root);
+    }, undefined, () => reject(new Error("Ruangan gagal dimuat. Periksa koneksi lalu coba lagi.")));
   });
 }
 
 type Ent = { sprite: THREE.Sprite; light?: THREE.PointLight };
 
 export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "ghost"; amGhost: boolean; imgs: Record<string, string> }) {
+  const villa = MAP_ID === "villa";
+  let disposed = false, loaded = !villa, lightsOn = true;
+  let interior: THREE.Group | null = null;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: !MOBILE && !LOW_END, powerPreference: LOW_END ? "low-power" : "high-performance" });
   renderer.setPixelRatio(LOW_END ? 0.75 : MOBILE ? Math.min(1.25, window.devicePixelRatio || 1) : Math.min(2, window.devicePixelRatio || 1));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = LOW_END ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+  renderer.toneMapping = villa ? THREE.ACESFilmicToneMapping : LOW_END ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
   const scene = new THREE.Scene();
   // ghost sees in the dark: bright violet "night vision", thin fog
   const fogCol = opts.amGhost ? 0x1c0a2a : 0x000000;
   scene.background = new THREE.Color(fogCol);
-  scene.fog = new THREE.FogExp2(fogCol, opts.amGhost ? 0.035 : 0.11);
+  scene.fog = villa ? null : new THREE.FogExp2(fogCol, opts.amGhost ? 0.035 : 0.11);
   const camera = new THREE.PerspectiveCamera(72, 1, 0.05, 60);
   camera.rotation.order = "YXZ";
   scene.add(camera);
-  scene.add(new THREE.HemisphereLight(opts.amGhost ? 0xc9a0ff : 0x2a2440, opts.amGhost ? 0x402050 : 0x080404, opts.amGhost ? 2.6 : LOW_END ? 0.32 : 0.22));
+  const ambient = new THREE.HemisphereLight(villa ? 0xffffff : opts.amGhost ? 0xc9a0ff : 0x2a2440, villa ? 0xb9b1a8 : opts.amGhost ? 0x402050 : 0x080404, villa ? 2.2 : opts.amGhost ? 2.6 : LOW_END ? 0.32 : 0.22);
+  scene.add(ambient);
+  const indoorLight = new THREE.PointLight(0xfff5e6, villa ? 45 : 0, 18, 1.5);
+  indoorLight.position.set(WORLD.w * U / 2, 2.5, WORLD.h * U / 2);
+  if (villa) scene.add(indoorLight);
+  const pmrem = villa ? new THREE.PMREMGenerator(renderer) : null;
+  const environmentRoom = villa ? new RoomEnvironment() : null;
+  const environmentTarget = pmrem && environmentRoom ? pmrem.fromScene(environmentRoom, 0.04) : null;
+  if (environmentTarget) scene.environment = environmentTarget.texture;
+  environmentRoom?.dispose();
+  pmrem?.dispose();
   if (opts.amGhost) scene.add(new THREE.AmbientLight(0x9070c0, 0.8));
 
   // floors and ceilings per room
   for (const r of ROOMS) {
+    if (r.glb) continue;
     const outdoor = !!r.outdoor;
     const tex = outdoor ? canvasTex((g, s) => { g.fillStyle = "#1a2414"; g.fillRect(0, 0, s, s); for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(${40 + Math.random() * 40},${60 + Math.random() * 50},30,.6)`; g.fillRect(Math.random() * s, Math.random() * s, 2, 5); } }, 1) : woodTex(r.floor === "#18222a" ? "#2b3a40" : "#4a2e1e");
     tex.repeat.set(r.w * U / 3, r.h * U / 3);
@@ -96,7 +102,7 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
   // walls & furniture (first boxes are structural walls; thin ones => walls)
   const wallMat = Mat({ map: wallTex, roughness: 0.95 });
   const furnMat = Mat({ map: woodTex("#3a2214"), roughness: 0.8 });
-  for (const w of WALLS) {
+  for (const w of (villa ? [] : WALLS)) {
     const isWall = Math.min(w.w, w.h) <= 20;
     const h = isWall ? WALL_H : 0.9;
     const m = new THREE.Mesh(new THREE.BoxGeometry(w.w * U, h, w.h * U), isWall ? wallMat : furnMat);
@@ -116,8 +122,10 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
     scene.add(pivot);
     return { d, pivot, base: pivot.rotation.y, open: 0, was: false };
   });
-  // 3D interior model fills its room; its walls/ceiling are hidden so our doorways stay open
-  for (const r of ROOMS) if (r.glb) loadInterior(scene, r);
+  const ready = villa ? loadInterior(scene).then((root) => {
+    if (disposed) { scene.remove(root); return; }
+    interior = root; loaded = true;
+  }) : Promise.resolve();
   // graves
   const graveMat = Mat({ color: 0x5a5d58, roughness: 1 });
   for (const [gx, gy] of (MAP_ID === "rumah" ? [[1060, 600], [1260, 640], [1380, 880], [1080, 900]] : []) as [number, number][]) {
@@ -127,8 +135,8 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
   // exit gate
   const gateMat = Mat({ color: 0x8b0d17, emissive: 0x8b0d17, emissiveIntensity: 0.6 });
   const gate = new THREE.Mesh(new THREE.TorusGeometry(EXIT.r * U, 0.08, 8, 32), gateMat);
-  gate.position.set(EXIT.x * U, EXIT.r * U + 0.1, EXIT.y * U); gate.rotation.y = Math.PI / 2; scene.add(gate);
-  const gateLight = new THREE.PointLight(0x8b0d17, 2, 5); gateLight.position.copy(gate.position); scene.add(gateLight);
+  gate.position.set(EXIT.x * U, EXIT.r * U + 0.1, EXIT.y * U); gate.rotation.y = Math.PI / 2; if (!villa) scene.add(gate);
+  const gateLight = new THREE.PointLight(0x8b0d17, 2, 5); gateLight.position.copy(gate.position); if (!villa) scene.add(gateLight);
 
   const tl = new THREE.TextureLoader();
   const texCache: Record<string, THREE.Texture> = {};
@@ -186,6 +194,19 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
 
   let bobT = 0, vmX = 0;
   return {
+    ready,
+    isLit(x: number, y: number) { return villa && lightsOn && ROOMS.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h); },
+    setLights(on: boolean) {
+      lightsOn = on;
+      if (!villa) return;
+      ambient.intensity = on ? 2.2 : opts.amGhost ? 1.5 : 0.18;
+      indoorLight.intensity = on ? 45 : 0;
+      scene.environmentIntensity = on ? 1 : 0.08;
+    },
+    inspect() {
+      let meshCount = 0; interior?.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.visible) meshCount++; });
+      return { loaded, lightsOn, meshCount, originalScale: interior?.scale.x, addedRoomGeometry: villa ? 0 : ROOMS.length };
+    },
     resize() {
       const w = canvas.clientWidth, h = canvas.clientHeight;
       renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); vmX = w < h ? -0.13 : 0; vm.scale.setScalar(w < h ? 0.8 : 1);
@@ -225,9 +246,10 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
       if (!opts.amGhost) {
         const flick = st.battery < 20 ? (Math.random() < 0.15 ? 0.2 : 1) : Math.random() < 0.008 ? 0.5 : 1;
         const p = st.battery <= 0 ? 0.04 : (0.25 + st.battery / 100 * 0.75) * flick;
-        flash.intensity = 45 * p; flash.distance = 8 + 16 * p;
+        const lit = villa && lightsOn;
+        flash.intensity = lit ? 0 : 45 * p; flash.distance = 8 + 16 * p;
         const lens = vm.userData["lens"] as THREE.Mesh | undefined;
-        if (lens) (lens.material as THREE.MeshBasicMaterial).color.setScalar(0.3 + p * 0.7);
+        if (lens) (lens.material as THREE.MeshBasicMaterial).color.setScalar(lit ? 0.12 : 0.3 + p * 0.7);
       }
       const open = st.keyMask === 31;
       gateMat.color.set(open ? 0x59e36b : 0x8b0d17); gateMat.emissive.set(open ? 0x59e36b : 0x8b0d17); gateLight.color.set(open ? 0x59e36b : 0x8b0d17);
@@ -240,7 +262,7 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
       });
       for (const o of st.others) {
         const p = players[o.id]; if (!p) continue;
-        p.light.visible = o.visible && !o.ghost;
+        p.light.visible = o.visible && !o.ghost && !(villa && lightsOn);
         if (p.av) {
           p.av.root.visible = o.visible; p.av.root.position.set(o.x * U, 0, o.y * U); p.av.root.rotation.y = o.yaw;
           if (o.visible) p.av.update({ dt: st.dt, t: st.t, moving: o.moving, pitch: o.pitch, emote: o.emote });
@@ -257,8 +279,9 @@ export function createScene(canvas: HTMLCanvasElement, opts: { me: CharId | "gho
         p.shout.visible = o.visible && o.shouting; p.shout.position.set(o.x * U, 2.1 + Math.sin(st.t * 12) * 0.05, o.y * U);
       }
       renderer.render(scene, camera);
+      if (loaded) canvas.dataset["sceneReady"] = "true";
     },
-    dispose() { renderer.dispose(); },
+    dispose() { disposed = true; delete canvas.dataset["sceneReady"]; environmentTarget?.dispose(); scene.traverse((o) => { const mesh = o as THREE.Mesh; if (!mesh.isMesh) return; mesh.geometry.dispose(); const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]; materials.forEach((m) => m.dispose()); }); renderer.dispose(); },
   };
 }
 export { WORLD };
